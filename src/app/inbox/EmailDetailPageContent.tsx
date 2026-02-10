@@ -16,10 +16,38 @@ export default function EmailDetailPageContent({ email, userRole }: EmailDetailP
   const [mounted, setMounted] = useState(false);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
+  const [summary, setSummary] = useState<string | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const handleSummarize = async () => {
+    setIsSummarizing(true);
+    setSummary(null);
+    try {
+      const res = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [{ role: "user", content: "Please provide a concise summary of this email. Follow the VC Assistant guidelines." }],
+          contextEmailIds: [email.id]
+        }),
+      });
+
+      const data = await res.json();
+      if (data.error) {
+        alert(`Error: ${data.error}`);
+      } else {
+        setSummary(data.content);
+      }
+    } catch (error) {
+      alert("Failed to summarize email. Please try again.");
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
 
   const handleDelete = async () => {
     if (!confirm("Are you sure you want to delete this email?")) return;
@@ -83,6 +111,24 @@ export default function EmailDetailPageContent({ email, userRole }: EmailDetailP
               <span className="text-sm text-gray-600 hidden sm:inline">Back to inbox</span>
             </div>
             <div className="flex items-center space-x-2 text-gray-600">
+              <button
+                onClick={handleSummarize}
+                disabled={isSummarizing}
+                className="flex items-center space-x-1 px-3 py-1.5 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-100 disabled:opacity-50 text-xs font-medium transition-colors"
+                title="Summarize with AI"
+              >
+                {isSummarizing ? (
+                  <svg className="animate-spin h-3 w-3 mr-1" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+                  </svg>
+                )}
+                <span>{isSummarizing ? "Summarizing..." : "Summarize"}</span>
+              </button>
               {isAdmin && (
                 <>
                   <button
@@ -147,6 +193,30 @@ export default function EmailDetailPageContent({ email, userRole }: EmailDetailP
               )}
             </div>
           </div>
+
+          {summary && (
+            <div className="mx-6 mb-4 p-4 bg-blue-50 border border-blue-100 rounded-xl shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <h3 className="text-sm font-semibold text-blue-900">AI Summary</h3>
+                <button
+                  onClick={() => setSummary(null)}
+                  className="ml-auto text-blue-400 hover:text-blue-600 transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+              <p className="text-sm text-blue-800 whitespace-pre-line leading-relaxed">
+                {summary}
+              </p>
+            </div>
+          )}
 
           <div className="px-6 pb-8 text-gray-900">
             <div className="prose max-w-none">
