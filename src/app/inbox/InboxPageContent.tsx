@@ -133,6 +133,8 @@ export default function InboxPageContent({ user }: InboxPageContentProps) {
             </Link>
             {user ? (
               <>
+                {/* Settings button hidden as requested to use env-based guidescript instead of UI updates */}
+                {/* 
                 <Link
                   href="/settings"
                   className="inline-flex flex-shrink-0 items-center px-3 py-2 rounded-full text-sm font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-100 shadow-sm"
@@ -143,6 +145,7 @@ export default function InboxPageContent({ user }: InboxPageContentProps) {
                   </svg>
                   Settings
                 </Link>
+                */}
                 <button
                   onClick={() => signOut({ callbackUrl: "/auth/login" })}
                   className="inline-flex flex-shrink-0 items-center px-3 py-2 rounded-full text-sm font-medium text-gray-700 bg-white border border-gray-200 hover:bg-gray-100 shadow-sm"
@@ -222,6 +225,6 @@ export default function InboxPageContent({ user }: InboxPageContentProps) {
 
         <EmailList userRole={user?.role} refreshTrigger={refreshTrigger} />
       </div>
-    </div>
+    </div >
   );
 }
