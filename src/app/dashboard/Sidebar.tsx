@@ -12,15 +12,15 @@ export default function Sidebar({ user }: { user: User | undefined }) {
     { name: "Inbox", href: "/inbox", current: pathname === "/inbox" },
     ...(user?.role === "ADMIN"
       ? [
-          { name: "Compose", href: "/compose", current: pathname === "/compose" },
-        ]
+        { name: "Compose", href: "/compose", current: pathname === "/compose" },
+      ]
       : []
     ),
     { name: "Settings", href: "/dashboard", current: pathname === "/dashboard" },
   ];
 
   return (
-    <div className="hidden md:block md:w-64 bg-gray-100 dark:bg-[var(--sidebar-bg)] border-r border-gray-200 dark:border-gray-700 h-screen fixed overflow-y-auto">
+    <div className="hidden md:block md:w-64 bg-white border-r border-gray-200 h-screen fixed overflow-y-auto">
       <div className="p-4">
         <div className="flex items-center space-x-2 mb-6">
           <div className="bg-blue-600 text-white p-2 rounded-lg">
@@ -37,11 +37,10 @@ export default function Sidebar({ user }: { user: User | undefined }) {
               <li key={item.name}>
                 <Link
                   href={item.href}
-                  className={`${
-                    item.current
+                  className={`${item.current
                       ? "bg-blue-100 text-blue-700 border-l-4 border-blue-500"
                       : "text-gray-700 hover:bg-gray-200"
-                  } group flex items-center px-4 py-2 text-sm font-medium rounded-l-md transition-colors`}
+                    } group flex items-center px-4 py-2 text-sm font-medium rounded-l-md transition-colors`}
                 >
                   {item.name}
                 </Link>
