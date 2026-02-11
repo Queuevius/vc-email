@@ -9,16 +9,6 @@ import { Email } from "@/types/email";
 
 export async function POST(req: NextRequest) {
     try {
-        const session = await getServerSession(authOptions);
-
-        if (!session || !session.user) {
-            return Response.json({ error: "Unauthorized: You must be logged in to use the AI assistant" }, { status: 401 });
-        }
-
-        // Check permissions
-        if (!canPerformAction(session.user, "search_emails")) { // Using search_emails as proxy for using AI
-            return Response.json({ error: "Unauthorized: Insufficient permissions (Role: " + session.user.role + ")" }, { status: 403 });
-        }
 
         const body = await req.json();
         const messages: ChatMessage[] = body.messages;
@@ -39,10 +29,17 @@ export async function POST(req: NextRequest) {
         // Fetch context emails if requested
         let contextEmails: Email[] = [];
         if (contextEmailIds.length > 0) {
-            // Just fetch all emails for now and filter (inefficient but works for small scale)
-            // Ideally EmailService should have getEmailsByIds
-            const allEmails = await emailService.getUserEmails(session.user.id);
-            contextEmails = allEmails.filter(e => contextEmailIds.includes(e.id));
+            // Only attempt to fetch emails if we have a way to identify the user (session)
+            // or if the application is intended to show public emails.
+            // For now, we'll try to get the session if it exists.
+            const session = await getServerSession(authOptions);
+            const userId = session?.user?.id;
+
+            if (userId) {
+                const allEmails = await emailService.getUserEmails(userId);
+                contextEmails = allEmails.filter(e => contextEmailIds.includes(e.id));
+            }
+            // If no user session, contextEmails remains empty (guest behavior)
         }
 
         // Call AI Service

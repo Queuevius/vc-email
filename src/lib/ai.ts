@@ -10,12 +10,13 @@ export interface AIContext {
     relevantSnippets?: string[];
 }
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY?.trim();
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL?.trim();
 const SITE_URL = process.env.OPENROUTER_SITE_URL || "http://localhost:3000";
 const SITE_NAME = process.env.OPENROUTER_SITE_NAME || "VC Email Assistant";
 
 export class AIService {
-    private model: string = process.env.OPENROUTER_MODEL || "anthropic/claude-3-opus:beta";
+    private model: string | undefined = OPENROUTER_MODEL;
 
     constructor() {
         if (!OPENROUTER_API_KEY) {
@@ -30,6 +31,10 @@ export class AIService {
     ): Promise<string> {
         if (!OPENROUTER_API_KEY) {
             throw new Error("OpenRouter API Key is missing.");
+        }
+
+        if (!this.model) {
+            throw new Error("OpenRouter Model is not defined. Please set OPENROUTER_MODEL in your .env file.");
         }
 
         // Construct the system prompt
@@ -79,8 +84,8 @@ export class AIService {
 
             if (!response.ok) {
                 const errorText = await response.text();
-                console.error("OpenRouter API Error:", errorText);
-                throw new Error(`OpenRouter API failed: ${response.statusText}`);
+                console.error(`OpenRouter API Error (Status: ${response.status}):`, errorText);
+                throw new Error(`OpenRouter API failed: ${response.statusText} (${response.status}). Model: ${this.model}`);
             }
 
             const data = await response.json();
