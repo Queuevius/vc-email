@@ -26,20 +26,21 @@ export async function POST(req: NextRequest) {
         // Fetch guidescript
         const guidescript = await guidescriptService.getGuidescript();
 
-        // Fetch context emails if requested
+        // Fetch context emails if requested OR fetch latest emails if none specified
         let contextEmails: Email[] = [];
-        if (contextEmailIds.length > 0) {
-            // Only attempt to fetch emails if we have a way to identify the user (session)
-            // or if the application is intended to show public emails.
-            // For now, we'll try to get the session if it exists.
-            const session = await getServerSession(authOptions);
-            const userId = session?.user?.id;
+        const session = await getServerSession(authOptions);
+        const userId = session?.user?.id;
 
+        if (contextEmailIds.length > 0) {
+            // Specific emails requested
             if (userId) {
                 const allEmails = await emailService.getUserEmails(userId);
                 contextEmails = allEmails.filter(e => contextEmailIds.includes(e.id));
             }
-            // If no user session, contextEmails remains empty (guest behavior)
+        } else if (userId) {
+            // No specific emails, fetch latest 20 as default context
+            console.log("No specific context emails, fetching latest 20 for AI context");
+            contextEmails = await emailService.fetchEmailsFromIMAP({ limit: 20 });
         }
 
         // Call AI Service

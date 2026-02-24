@@ -38,8 +38,10 @@ export class AIService {
         }
 
         // Construct the system prompt
-        let systemPrompt = `You are a helpful AI Email Assistant for a VC firm. 
-    You have access to the user's emails to answer questions.
+        let systemPrompt = `You are a helpful AI Email Assistant for Needpedia/Venture Capital. 
+    You have access to a selection of the user's emails to answer questions. 
+    Use the provided email content as your primary knowledge base.
+    If multiple emails are provided, they represent the most recent deal flow and communications.
     Always be professional, concise, and accurate.
     `;
 
@@ -48,16 +50,17 @@ export class AIService {
         }
 
         if (context?.emails && context.emails.length > 0) {
-            systemPrompt += `\n\nCONTEXT - The following emails are relevant to the user's query:\n`;
+            systemPrompt += `\n\nCONTEXT - RECENT EMAILS:\n`;
             context.emails.forEach((email, index) => {
-                systemPrompt += `\n--- Email ${index + 1} ---\n`;
-                systemPrompt += `From: ${email.from}\n`;
-                systemPrompt += `To: ${email.to}\n`;
-                systemPrompt += `Subject: ${email.subject}\n`;
-                systemPrompt += `Date: ${email.sentAt}\n`;
-                systemPrompt += `Body: ${email.bodyText || email.bodyHtml || "(No content)"}\n`;
+                systemPrompt += `\n[Email ${index + 1}]
+Date: ${email.sentAt}
+From: ${email.from}
+To: ${email.to}
+Subject: ${email.subject}
+Content: ${email.bodyText || email.bodyHtml?.replace(/<[^>]*>?/gm, "") || "(No content)"}
+---`;
             });
-            systemPrompt += `\n--- End of Context ---\n`;
+            systemPrompt += `\n\nUse the above emails to answer the user's request. If the information isn't in the emails, state that clearly.\n`;
         }
 
         // Prepare messages for OpenRouter
