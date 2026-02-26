@@ -12,21 +12,17 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    if (!session.user.email) {
-      return Response.json({ error: "User email not found" }, { status: 400 });
-    }
-
     const emailService = new EmailService();
     const body = await req.json();
 
-    const { from, to, cc, bcc, subject, text, html } = body;
+    const { to, cc, bcc, subject, text, html } = body;
 
     if (!to || !subject) {
       return Response.json({ error: "Missing required fields: 'to' and 'subject' are required" }, { status: 400 });
     }
 
-    // Use the 'from' field from the request, or fall back to the authenticated user's email
-    const senderEmail = from || session.user.email;
+    // Always send from a single configured address
+    const senderEmail = process.env.EMAIL_FROM || "VC@Needpedia.org";
     
     if (!senderEmail) {
       return Response.json({ error: "Missing sender email address" }, { status: 400 });

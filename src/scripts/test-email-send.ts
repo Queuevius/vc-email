@@ -28,6 +28,7 @@ async function main() {
     console.log('Testing email sending...');
     console.log(`Host: ${process.env.EMAIL_SERVER_HOST}`);
     console.log(`User: ${process.env.EMAIL_SERVER_USER}`);
+    console.log(`From: ${process.env.EMAIL_FROM || process.env.EMAIL_SERVER_USER}`);
 
     if (!process.env.EMAIL_SERVER_HOST || process.env.EMAIL_SERVER_HOST === 'localhost') {
         console.warn('WARNING: Host is localhost or undefined. This might not send a real email.');
@@ -37,7 +38,7 @@ async function main() {
 
     try {
         const result = await emailService.sendEmail({
-            from: process.env.EMAIL_SERVER_USER!,
+            from: (process.env.EMAIL_FROM || process.env.EMAIL_SERVER_USER)!,
             to: 'sahilkhan1432k@gmail.com',
             subject: 'Test Email from VC Email System',
             text: 'This is a test email sent from the VC Email System manual test script to verify SMTP configuration.',
