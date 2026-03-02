@@ -5,6 +5,7 @@ import { Email } from "@/types/email";
 
 interface SendEmailParams {
   from: string;
+  fromName?: string;
   to: string;
   cc?: string;
   bcc?: string;
@@ -168,7 +169,9 @@ export class EmailService {
       try {
         // Send the email
         info = await this.transporter.sendMail({
-          from: params.from,
+          from: params.fromName
+            ? { name: params.fromName, address: params.from }
+            : params.from,
           to: params.to,
           cc: params.cc,
           bcc: params.bcc,

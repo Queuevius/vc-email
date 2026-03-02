@@ -21,8 +21,9 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Missing required fields: 'to' and 'subject' are required" }, { status: 400 });
     }
 
-    // Always send from a single configured address
+    // Always send from a single configured address + display name
     const senderEmail = process.env.EMAIL_FROM || "VC@Needpedia.org";
+    const senderName = process.env.EMAIL_FROM_NAME || "Volunteer Coordination";
     
     if (!senderEmail) {
       return Response.json({ error: "Missing sender email address" }, { status: 400 });
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
     const result = await emailService.sendEmail(
       {
         from: senderEmail,
+        fromName: senderName,
         to,
         cc,
         bcc,

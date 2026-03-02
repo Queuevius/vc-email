@@ -66,6 +66,11 @@ EMAIL_SERVER_HOST="smtp.example.com"
 EMAIL_SERVER_PORT="587"  # Use 465 for SSL/TLS, 587 for STARTTLS
 EMAIL_SERVER_USER="your-smtp-user@example.com"
 EMAIL_SERVER_PASSWORD="your-smtp-password"
+
+# Outgoing "From" address and display name
+# Note: many SMTP providers require this to match (or be authorized by) EMAIL_SERVER_USER.
+EMAIL_FROM="VC@Needpedia.org"
+EMAIL_FROM_NAME="Volunteer Coordination"
 ```
 
 ### SMTP Configuration (Optional)
