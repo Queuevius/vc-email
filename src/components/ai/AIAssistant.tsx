@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { usePathname } from "next/navigation";
 
 interface Message {
     role: "user" | "assistant";
@@ -18,6 +19,8 @@ export default function AIAssistant() {
     const [isLoading, setIsLoading] = useState(false);
     const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const panelRef = useRef<HTMLDivElement>(null);
+    const pathname = usePathname();
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -26,6 +29,44 @@ export default function AIAssistant() {
     useEffect(() => {
         scrollToBottom();
     }, [messages, isOpen]);
+
+    useEffect(() => {
+        const handleOpen = () => setIsOpen(true);
+        window.addEventListener("open-ai-assistant", handleOpen);
+        return () => window.removeEventListener("open-ai-assistant", handleOpen);
+    }, []);
+
+    // Close on navigation
+    useEffect(() => {
+        setIsOpen(false);
+    }, [pathname]);
+
+    // Close on click outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
+                // If the click is on the toggle button itself, the state will be toggled anyway
+                // so we only close if it's truly outside both.
+                // However, the toggle button is outside the panel.
+                // To avoid immediate close when clicking toggle, we check if the target is the toggle button.
+                const toggleBtn = document.getElementById('ai-assistant-toggle');
+                if (toggleBtn && toggleBtn.contains(event.target as Node)) {
+                    return;
+                }
+                setIsOpen(false);
+            }
+        };
+
+        if (isOpen) {
+            document.addEventListener("mousedown", handleClickOutside);
+        } else {
+            document.removeEventListener("mousedown", handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, [isOpen]);
 
     const handleCopy = (text: string, index: number) => {
         navigator.clipboard.writeText(text);
@@ -69,7 +110,10 @@ export default function AIAssistant() {
     return (
         <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
             {isOpen && (
-                <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-800 w-[400px] mb-4 flex flex-col overflow-hidden h-[600px]">
+                <div
+                    ref={panelRef}
+                    className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-800 w-[400px] mb-4 flex flex-col overflow-hidden h-[600px]"
+                >
                     {/* Header */}
                     <div className="bg-slate-900 dark:bg-slate-800 px-6 py-4 flex justify-between items-center">
                         <div className="flex items-center space-x-3">
@@ -183,6 +227,7 @@ export default function AIAssistant() {
 
             {/* Toggle Button */}
             <button
+                id="ai-assistant-toggle"
                 onClick={() => setIsOpen(!isOpen)}
                 className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-5 py-3.5 shadow-lg hover:shadow-xl transition-all flex items-center gap-2 font-medium text-sm"
             >

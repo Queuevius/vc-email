@@ -105,33 +105,16 @@ function EmailItem({ email, userRole, onDelete, onSelect, isSelected = false }: 
 
   return (
     <li className="hover:bg-gray-50 transition-colors relative group">
-      <div className="flex items-center px-3 sm:px-4 py-3 gap-2 sm:gap-4 overflow-hidden">
-        <div className="flex items-center space-x-2 sm:space-x-3 w-32 sm:w-48 flex-shrink-0">
-          {isAdmin && (
-            <input
-              type="checkbox"
-              className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-              checked={isSelected}
-              onChange={(e) => {
-                e.stopPropagation();
-                if (onSelect) {
-                  onSelect(email.id, e.target.checked);
-                }
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-              }}
-            />
-          )}
+      <div className="flex items-center px-4 py-3 gap-4 overflow-hidden">
+        <div className="flex items-center space-x-4 w-48 shrink-0">
           <button
-            className={`hidden sm:block hover:text-yellow-500 transition-colors ${isStarred ? "text-yellow-400" : "text-gray-400"} ${isPending ? "opacity-50" : ""}`}
+            className={`hover:text-yellow-500 transition-colors ${isStarred ? "text-yellow-400" : "text-gray-300"} ${isPending ? "opacity-50" : ""}`}
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               handleToggleStar(e);
             }}
             disabled={isPending}
-            title={isStarred ? "Starred" : "Star"}
           >
             {isStarred ? (
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -143,7 +126,7 @@ function EmailItem({ email, userRole, onDelete, onSelect, isSelected = false }: 
               </svg>
             )}
           </button>
-          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-medium">
+          <div className="shrink-0 w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-medium">
             {senderInitial}
           </div>
           <Link href={`/inbox/${email.id}`} className="block min-w-0" onClick={(e) => e.stopPropagation()}>
@@ -157,31 +140,15 @@ function EmailItem({ email, userRole, onDelete, onSelect, isSelected = false }: 
           <p className={`truncate text-sm ${email.isRead ? "text-gray-900" : "font-semibold text-gray-900"}`}>
             {truncatedSubject}
           </p>
-          <p className="truncate text-sm text-gray-500">
+          <p className="truncate text-sm text-gray-400">
             <span className="hidden sm:inline">- </span>
             {truncatedBody}
           </p>
         </Link>
 
-        <div className="w-16 sm:w-20 flex items-center justify-end gap-2 flex-shrink-0">
-          {isAdmin && (
-            <button
-              className={`p-1 rounded-full hover:bg-red-100 text-gray-400 hover:text-red-600 transition-colors ${isDeleting ? "opacity-50" : ""} z-10`}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                handleDelete(e);
-              }}
-              disabled={isDeleting}
-              title="Delete"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-            </button>
-          )}
+        <div className="w-20 shrink-0 text-right">
           <Link href={`/inbox/${email.id}`} className="block" onClick={(e) => e.stopPropagation()}>
-            <p className="text-[10px] sm:text-xs text-gray-500">
+            <p className="text-xs text-gray-400">
               {formattedDate}
             </p>
           </Link>

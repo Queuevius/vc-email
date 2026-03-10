@@ -24,4 +24,30 @@ export async function GET(req: NextRequest) {
     }
 }
 
-// POST removed as updates are now managed via environment variables
+export async function POST(req: NextRequest) {
+    try {
+        const session = await getServerSession(authOptions);
+
+        if (!session || !session.user) {
+            return Response.json({ error: "Unauthorized: You must be logged in" }, { status: 401 });
+        }
+
+        const body = await req.json();
+        const { content } = body;
+
+        if (typeof content !== "string" || content.trim() === "") {
+            return Response.json({ error: "Content is required" }, { status: 400 });
+        }
+
+        const guidescriptService = new GuidescriptService();
+        await guidescriptService.setGuidescript(content.trim());
+
+        return Response.json({ success: true, message: "Knowledge base updated successfully." });
+    } catch (error: any) {
+        console.error("Error saving guidescript:", error);
+        return Response.json(
+            { error: error.message || "Failed to save guidescript" },
+            { status: 500 }
+        );
+    }
+}

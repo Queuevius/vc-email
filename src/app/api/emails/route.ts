@@ -4,18 +4,21 @@ import { EmailService } from "@/services/emailService";
 import { NextRequest } from "next/server";
 import { canPerformAction } from "@/lib/permissions";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url);
+    const mailbox = searchParams.get("mailbox") || "INBOX";
+
     const session = await getServerSession(authOptions);
     const emailService = new EmailService();
 
     // For guests (no session), show latest announcements
     if (!session) {
-      const guestEmails = await emailService.getGuestEmails();
+      const guestEmails = await emailService.getGuestEmails(mailbox);
       return Response.json({ emails: guestEmails });
     }
 
-    const emails = await emailService.getUserEmails(session.user.id);
+    const emails = await emailService.getUserEmails(session.user.id, mailbox);
 
     return Response.json({ emails });
   } catch (error) {
@@ -23,6 +26,7 @@ export async function GET() {
     return Response.json({ error: "Failed to fetch emails" }, { status: 500 });
   }
 }
+
 
 export async function DELETE(req: NextRequest) {
   try {

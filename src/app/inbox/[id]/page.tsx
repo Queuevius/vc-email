@@ -44,5 +44,5 @@ export default async function EmailDetailPage(props: EmailDetailPageProps) {
     await emailService.toggleReadStatus(email.id, true);
   }
 
-  return <EmailDetailPageContent email={email} userRole={session?.user?.role} />;
+  return <EmailDetailPageContent email={email} user={session?.user} />;
 }
