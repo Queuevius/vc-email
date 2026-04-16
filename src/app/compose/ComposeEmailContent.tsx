@@ -11,6 +11,8 @@ interface ComposeEmailContentProps {
 
 export default function ComposeEmailContent({ user }: ComposeEmailContentProps) {
   const [to, setTo] = useState("");
+  const [recentRecipients, setRecentRecipients] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -18,6 +20,21 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
   const router = useRouter();
 
   const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem("recentRecipients");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setRecentRecipients(parsed.filter((item) => typeof item === "string"));
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load recent recipients", e);
+    }
+  }, []);
 
   useEffect(() => {
     const toParam = searchParams.get("to");
@@ -48,6 +65,28 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
       const result = await response.json();
 
       if (response.ok) {
+        // Store recipient email(s) for future suggestions
+        const emailsToStore = to
+          .split(/[;,]/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        if (emailsToStore.length > 0) {
+          const merged = Array.from(
+            new Set([...emailsToStore, ...recentRecipients])
+          ).slice(0, 20);
+          setRecentRecipients(merged);
+          try {
+            if (typeof window !== "undefined") {
+              window.localStorage.setItem(
+                "recentRecipients",
+                JSON.stringify(merged)
+              );
+            }
+          } catch (err) {
+            console.error("Failed to save recent recipients", err);
+          }
+        }
+
         router.push("/inbox");
         router.refresh();
       } else {
@@ -98,14 +137,51 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
                   <label className="text-xs font-medium text-gray-800 uppercase tracking-wide">
                     To
                   </label>
-                  <input
-                    type="text"
-                    value={to}
-                    onChange={(e) => setTo(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
-                    placeholder="recipient@example.com"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={to}
+                      onChange={(e) => {
+                        setTo(e.target.value);
+                        setShowSuggestions(true);
+                      }}
+                      onFocus={() => setShowSuggestions(true)}
+                      onBlur={() => {
+                        // Delay hiding to allow click selection
+                        setTimeout(() => setShowSuggestions(false), 100);
+                      }}
+                      required
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                      placeholder="recipient@example.com"
+                      autoComplete="off"
+                    />
+                    {showSuggestions &&
+                      recentRecipients.length > 0 &&
+                      to.trim().length > 0 && (
+                        <ul className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-auto text-sm">
+                          {recentRecipients
+                            .filter((email) =>
+                              email
+                                .toLowerCase()
+                                .includes(to.trim().toLowerCase())
+                            )
+                            .slice(0, 8)
+                            .map((email) => (
+                              <li
+                                key={email}
+                                className="px-3 py-2 cursor-pointer hover:bg-gray-100"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  setTo(email);
+                                  setShowSuggestions(false);
+                                }}
+                              >
+                                {email}
+                              </li>
+                            ))}
+                        </ul>
+                      )}
+                  </div>
                 </div>
 
                 <div className="space-y-1">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
 
@@ -13,6 +13,8 @@ export default function UpdateKBPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState<{ type: "success" | "error", text: string } | null>(null);
+    const hasFetched = useRef(false);
+    const isFirstRender = useRef(true);
 
     useEffect(() => {
         if (status === "unauthenticated") {
@@ -26,7 +28,10 @@ export default function UpdateKBPage() {
                 return;
             }
 
+            if (hasFetched.current) return;
+
             const fetchKB = async () => {
+                hasFetched.current = true;
                 try {
                     const res = await fetch("/api/guidescript");
                     if (res.ok) {
@@ -46,9 +51,9 @@ export default function UpdateKBPage() {
         }
     }, [status, session, router]);
 
-    const handleSave = async () => {
+    const handleSave = async (silent = false) => {
         setSaving(true);
-        setMessage(null);
+        if (!silent) setMessage(null);
 
         try {
             const res = await fetch("/api/guidescript", {
@@ -62,7 +67,7 @@ export default function UpdateKBPage() {
             const data = await res.json();
 
             if (res.ok) {
-                setMessage({ type: "success", text: "Knowledge Base updated successfully!" });
+                if (!silent) setMessage({ type: "success", text: "Knowledge Base updated successfully!" });
             } else {
                 setMessage({ type: "error", text: data.error || "Failed to save. Is Vercel KV configured?" });
             }
@@ -71,12 +76,30 @@ export default function UpdateKBPage() {
         } finally {
             setSaving(false);
 
-            // Auto-dismiss success message
-            setTimeout(() => {
-                setMessage(null);
-            }, 5000);
+            if (!silent) {
+                setTimeout(() => {
+                    setMessage(null);
+                }, 5000);
+            }
         }
     };
+
+    // Auto-save effect
+    useEffect(() => {
+        if (isFirstRender.current) {
+            isFirstRender.current = false;
+            return;
+        }
+
+        if (loading) return;
+
+        const timeoutId = setTimeout(() => {
+            handleSave(true);
+        }, 3000);
+
+        return () => clearTimeout(timeoutId);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [content]);
 
     if (loading) {
         return (
@@ -143,7 +166,7 @@ export default function UpdateKBPage() {
                                     Guidescript Instructions
                                 </div>
                                 <button
-                                    onClick={handleSave}
+                                    onClick={() => handleSave(false)}
                                     disabled={saving}
                                     className="px-5 py-2 rounded-full text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
