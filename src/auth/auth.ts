@@ -16,8 +16,9 @@ export const authOptions: AuthOptions = {
 
         const adminEmail = process.env.ADMIN_EMAIL || process.env.IMAP_USER;
         const adminPassword = process.env.ADMIN_PASSWORD;
-        const guestEmail = process.env.NEXT_PUBLIC_GUEST_EMAIL;
-        const guestPassword = process.env.GUEST_PASSWORD || process.env.NEXT_PUBLIC_GUEST_PASSWORD;
+        const guestEmail = process.env.GUEST_EMAIL;
+        const guestPassword = process.env.GUEST_PASSWORD;
+
 
         // Admin login
         if (credentials.email === adminEmail && credentials.password === adminPassword) {

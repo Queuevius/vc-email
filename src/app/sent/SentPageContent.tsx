@@ -53,7 +53,8 @@ export default function SentPageContent({ user }: SentPageContentProps) {
                             <EmailList
                                 userRole={user?.role}
                                 refreshTrigger={refreshTrigger}
-                                mailbox={process.env.IMAP_SENT_MAILBOX || "Sent"}
+                                mailbox="Sent"
+
                             />
                         </div>
                     </div>

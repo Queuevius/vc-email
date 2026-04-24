@@ -142,7 +142,8 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const userEmailForAI = session?.user?.email || process.env.NEXT_PUBLIC_GUEST_EMAIL || "guest@example.com";
+        const userEmailForAI = session?.user?.email || process.env.GUEST_EMAIL || "guest@example.com";
+
 
         // Call AI Service
         const response = await aiService.chat(

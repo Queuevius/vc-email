@@ -1,15 +1,8 @@
 import { Redis } from "@upstash/redis";
+import { getRedisClient } from "./redis";
 
 const REDIS_KEY = "guidescript";
 
-function getRedisClient(): Redis | null {
-    const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-    const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-
-    if (!url || !token) return null;
-
-    return new Redis({ url, token });
-}
 
 export class GuidescriptService {
     async getGuidescript(): Promise<string> {
