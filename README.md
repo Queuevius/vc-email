@@ -18,7 +18,9 @@ A modern, IMAP-backed inbox built with Next.js 16 (App Router) and React 19. It 
 - **UI**: React 19, Tailwind CSS 4
 - **Auth**: NextAuth.js (credentials/JWT)
 - **Mail**: imap-simple + mailparser (IMAP), Nodemailer (SMTP)
-- **State & Perf**: React server actions, shared in-memory IMAP cache (60s), memoized list items
+- **State & Perf**: React server actions, shared in-memory IMAP cache (60s), Upstash Redis for persistent settings
+- **Maintenance**: Automated daily keep-alive job to prevent Redis archiving
+
 - **Testing**: Vitest, Playwright
 
 ## 🏁 Getting Started
@@ -47,9 +49,9 @@ ADMIN_EMAIL="admin@example.com"
 ADMIN_PASSWORD="your-admin-password"
 
 # Guest account (read-only)
-NEXT_PUBLIC_GUEST_EMAIL="guest@example.com"
+GUEST_EMAIL="guest@example.com"
 GUEST_PASSWORD="your-guest-password"
-NEXT_PUBLIC_GUEST_PASSWORD="your-guest-password"
+
 
 # IMAP (required for inbox)
 IMAP_HOST="imap.example.com"
@@ -66,6 +68,11 @@ EMAIL_SERVER_HOST="smtp.example.com"
 EMAIL_SERVER_PORT="587"  # Use 465 for SSL/TLS, 587 for STARTTLS
 EMAIL_SERVER_USER="your-smtp-user@example.com"
 EMAIL_SERVER_PASSWORD="your-smtp-password"
+
+# Outgoing "From" address and display name
+# Note: many SMTP providers require this to match (or be authorized by) EMAIL_SERVER_USER.
+EMAIL_FROM="VC@Needpedia.org"
+EMAIL_FROM_NAME="Volunteer Coordination"
 ```
 
 ### SMTP Configuration (Optional)
@@ -93,7 +100,10 @@ Visit http://localhost:3000 and sign in with the admin or guest credentials abov
 
 ## ℹ️ Notes
 
-- No database required; everything is fetched directly from IMAP and cached in memory for 60 seconds.
+- No database required for core mail functions; everything is fetched directly from IMAP.
+- Upstash Redis is used for persistent application settings (e.g., Guidescript).
+- **Redis Keep-Alive**: To prevent the Upstash free tier from archiving the database, a cron job is configured in `vercel.json` to ping the database **once per day** (complying with Vercel Free tier limits).
+
 - Admin-only actions: compose, delete, bulk delete. Both roles can toggle star/read where permitted by IMAP flags.
 
 

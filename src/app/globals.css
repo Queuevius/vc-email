@@ -4,16 +4,16 @@
   --background: #ffffff;
   --foreground: #171717;
   --card-bg: #ffffff;
-  --sidebar-bg: #f3f4f6;
+  --sidebar-bg: #ffffff;
   --header-border: #e5e7eb;
 }
 
 .dark {
-  --background: #0f172a;
-  --foreground: #e2e8f0;
-  --card-bg: #1e293b;
-  --sidebar-bg: #1e293b;
-  --header-border: #334155;
+  --background: #ffffff;
+  --foreground: #171717;
+  --card-bg: #ffffff;
+  --sidebar-bg: #ffffff;
+  --header-border: #e5e7eb;
 }
 
 @theme inline {

@@ -5,6 +5,7 @@ import { Email } from "@/types/email";
 
 interface SendEmailParams {
   from: string;
+  fromName?: string;
   to: string;
   cc?: string;
   bcc?: string;
@@ -18,8 +19,8 @@ interface EmailCache {
   timestamp: number;
 }
 
-// Shared cache across all instances
-let globalEmailCache: EmailCache | null = null;
+// Shared cache across all instances (mailbox -> cache)
+let globalEmailCacheMap: Map<string, EmailCache> = new Map();
 const CACHE_TTL = 60000; // 60 seconds
 
 // Shared transporter across all instances
@@ -168,7 +169,9 @@ export class EmailService {
       try {
         // Send the email
         info = await this.transporter.sendMail({
-          from: params.from,
+          from: params.fromName
+            ? { name: params.fromName, address: params.from }
+            : params.from,
           to: params.to,
           cc: params.cc,
           bcc: params.bcc,
@@ -199,6 +202,31 @@ export class EmailService {
           throw new Error("SMTP connection timed out. Please check your network connection.");
         } else {
           throw new Error(`Failed to send email: ${sendError.message}`);
+        }
+      }
+
+      // Optional: Store in Sent mailbox if IMAP is configured
+      if (process.env.IMAP_HOST && process.env.IMAP_USER && process.env.IMAP_PASSWORD) {
+        try {
+          const sentMailbox = process.env.IMAP_SENT_MAILBOX || "Sent";
+          let connection = await this.getImapConnection();
+          await connection.openBox(sentMailbox);
+
+          const date = new Date();
+          const from = params.fromName ? `"${params.fromName}" <${params.from}>` : params.from;
+
+          await (connection as any).append(
+            `From: ${from}\r\nTo: ${params.to}\r\nSubject: ${params.subject}\r\nDate: ${date.toUTCString()}\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${params.html || params.text}`,
+            {
+              mailbox: sentMailbox,
+              flags: ["\\Seen"],
+              date: date
+            }
+          );
+          connection.end();
+          this.invalidateCache(sentMailbox);
+        } catch (appendError) {
+          console.warn("Failed to append email to Sent mailbox:", appendError);
         }
       }
 
@@ -233,28 +261,34 @@ export class EmailService {
     }
   }
 
-  private isCacheValid(): boolean {
-    if (!globalEmailCache) return false;
+  private isCacheValid(mailbox: string): boolean {
+    const cache = globalEmailCacheMap.get(mailbox);
+    if (!cache) return false;
     const now = Date.now();
-    return (now - globalEmailCache.timestamp) < CACHE_TTL;
+    return (now - cache.timestamp) < CACHE_TTL;
   }
 
-  private invalidateCache(): void {
-    globalEmailCache = null;
+  private invalidateCache(mailbox?: string): void {
+    if (mailbox) {
+      globalEmailCacheMap.delete(mailbox);
+    } else {
+      globalEmailCacheMap.clear();
+    }
   }
 
   async fetchEmailsFromIMAP(options?: {
     mailbox?: string;
     limit?: number;
   }): Promise<Email[]> {
+    const mailbox = options?.mailbox || process.env.IMAP_MAILBOX || "INBOX";
+
     // Check cache first
-    if (this.isCacheValid()) {
-      console.log('Returning cached emails');
-      return globalEmailCache!.emails;
+    if (this.isCacheValid(mailbox)) {
+      console.log(`Returning cached emails for mailbox: ${mailbox}`);
+      return globalEmailCacheMap.get(mailbox)!.emails;
     }
 
-    console.log('Fetching fresh emails from IMAP...');
-    const mailbox = options?.mailbox || process.env.IMAP_MAILBOX || "INBOX";
+    console.log(`Fetching fresh emails from IMAP mailbox: ${mailbox}...`);
     const limit = options?.limit || parseInt(process.env.IMAP_FETCH_LIMIT || "50");
 
     let connection: any;
@@ -330,10 +364,10 @@ export class EmailService {
       const emails = emailResults.filter((email): email is Email => email !== null);
 
       // Cache the fetched emails
-      globalEmailCache = {
+      globalEmailCacheMap.set(mailbox, {
         emails,
         timestamp: Date.now()
-      };
+      });
 
       return emails;
     } catch (error) {
@@ -344,20 +378,20 @@ export class EmailService {
     }
   }
 
-  async getUserEmails(userId: string, userEmail?: string | null) {
-    return this.fetchEmailsFromIMAP();
+  async getUserEmails(userId: string, mailbox: string = "INBOX") {
+    return this.fetchEmailsFromIMAP({ mailbox });
   }
 
-  async getGuestEmails() {
-    return this.fetchEmailsFromIMAP();
+  async getGuestEmails(mailbox: string = "INBOX") {
+    return this.fetchEmailsFromIMAP({ mailbox });
   }
 
   async getEmailById(emailId: string) {
     // Try to get from cache first (instant)
-    if (this.isCacheValid()) {
-      const cachedEmail = globalEmailCache!.emails.find(e => e.id === emailId);
+    for (const [mailbox, cache] of globalEmailCacheMap.entries()) {
+      const cachedEmail = cache.emails.find(e => e.id === emailId);
       if (cachedEmail) {
-        console.log('Returning email from cache');
+        console.log(`Returning email ${emailId} from cache (${mailbox})`);
         return cachedEmail;
       }
     }

@@ -18,9 +18,9 @@ export function canPerformAction(user: User | undefined, action: string): boolea
 
   switch (action) {
     case "send_email":
-      return isAdmin(user) || isReadOnly(user);
+      return isAdmin(user);
     case "compose_email":
-      return isAdmin(user) || isReadOnly(user);
+      return isAdmin(user);
     case "delete_email":
       return isAdmin(user);
     case "view_inbox":

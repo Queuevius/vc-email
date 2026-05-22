@@ -1,7 +1,7 @@
 "use client";
 
 import { User } from "next-auth";
-import Sidebar from "./Sidebar";
+import Sidebar from "@/components/layout/Sidebar";
 import Header from "./Header";
 
 interface DashboardLayoutContentProps {
