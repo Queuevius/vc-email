@@ -297,7 +297,7 @@ export class EmailService {
       await connection.openBox(mailbox);
 
       const since = new Date();
-      since.setDate(since.getDate() - 30);
+      since.setDate(since.getDate() - 3650);
 
       const searchCriteria = [["SINCE", since]];
       const fetchOptions = {
