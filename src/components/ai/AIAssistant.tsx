@@ -222,6 +222,7 @@ export default function AIAssistant() {
                             </button>
                         </div>
                     </form>
+                    <p className="text-center text-[10px] text-gray-400 px-3 mt-1">All AI conversations are recorded to help us improve our site and workflows.</p>
                 </div>
             )}
 

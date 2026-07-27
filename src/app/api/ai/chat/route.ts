@@ -6,6 +6,35 @@ import { GuidescriptService } from "@/lib/guidescript";
 import { EmailService } from "@/services/emailService";
 import { Email } from "@/types/email";
 
+const NEEDPEDIA_API = process.env.NEXT_PUBLIC_API_BASE_URL || "https://needpedia.org";
+const POST_TOKEN = process.env.POST_TOKEN || "";
+const conversationThreads = new Map<string, string>();
+
+async function persistThread(threadId: string, userEmail: string) {
+  try {
+    await fetch(`${NEEDPEDIA_API}/api/v1/chat_threads`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": POST_TOKEN },
+      body: JSON.stringify({ chat_thread: { thread_id: threadId, title: `VC Email - ${userEmail}` }, thread_id: threadId }),
+    });
+  } catch {}
+}
+
+async function persistMessages(threadId: string, messages: ChatMessage[]) {
+  try {
+    const body = {
+      thread_id: threadId,
+      assistant_name: "VC Email Assistant",
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+    };
+    await fetch(`${NEEDPEDIA_API}/api/v1/chat_messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": POST_TOKEN },
+      body: JSON.stringify(body),
+    });
+  } catch {}
+}
+
 const URL_REGEX = /\bhttps?:\/\/[^\s)]+/gi;
 const MAX_GUIDESCRIPT_LINKS = 4;
 const LINK_FETCH_TIMEOUT_MS = 7000;
@@ -151,6 +180,15 @@ export async function POST(req: NextRequest) {
             { emails: contextEmails, userEmail: userEmailForAI, relevantSnippets: linkedSnippets },
             guidescript
         );
+
+        // Persist conversation to Needpedia Rails backend
+        let threadId = conversationThreads.get(userEmailForAI);
+        if (!threadId) {
+            threadId = crypto.randomUUID();
+            conversationThreads.set(userEmailForAI, threadId);
+            await persistThread(threadId, userEmailForAI);
+        }
+        persistMessages(threadId, [...messages, { role: "assistant", content: response }]);
 
         return Response.json({
             role: "assistant",
