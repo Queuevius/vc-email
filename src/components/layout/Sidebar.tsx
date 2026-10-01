@@ -36,7 +36,10 @@ export default function Sidebar({ user }: { user: User | undefined }) {
     setIsOpen(false);
   };
 
-  const isGuest = !user || (user.role as string) === "GUEST";
+  // PC-5 guest fix: the role is "READ_ONLY", never "GUEST", so the old check
+  // gave the guest login Compose and Update KB. Now only admin gets them.
+  const isGuest = !user;
+  const isAdminUser = user?.role === "ADMIN";
 
   const navigation = [
     {
@@ -48,11 +51,11 @@ export default function Sidebar({ user }: { user: User | undefined }) {
       type: "button",
       current: false
     },
-    ...(isGuest ? [] : [{ name: "Compose", href: "/compose", current: pathname === "/compose" }]),
+    ...(isAdminUser ? [{ name: "Compose", href: "/compose", current: pathname === "/compose" }] : []),
     { name: "Refresh", onClick: handleRefresh, type: "button" },
     { name: "Inbox", href: "/inbox", current: pathname === "/inbox" },
     { name: "Sent", href: "/sent", current: pathname === "/sent" },
-    ...(!isGuest ? [{ name: "Update KB", href: "/update-kb", current: pathname === "/update-kb" }] : []),
+    ...(isAdminUser ? [{ name: "Update KB", href: "/update-kb", current: pathname === "/update-kb" }] : []),
     {
       name: isGuest ? "Login" : "Logout",
       onClick: () => {

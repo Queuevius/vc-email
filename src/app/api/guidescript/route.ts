@@ -32,6 +32,11 @@ export async function POST(req: NextRequest) {
             return Response.json({ error: "Unauthorized: You must be logged in" }, { status: 401 });
         }
 
+        // PC-5 guest fix: only the admin login can change Adele's instructions.
+        if (session.user.role !== "ADMIN") {
+            return Response.json({ error: "Only the admin login can change Adele's instructions." }, { status: 403 });
+        }
+
         const body = await req.json();
         const { content } = body;
 

@@ -10,5 +10,10 @@ export default async function UpdateKBRoute() {
         redirect("/auth/login");
     }
 
+    // PC-5 guest fix: only the admin login reaches this page.
+    if (session.user?.role !== "ADMIN") {
+        redirect("/inbox");
+    }
+
     return <UpdateKBPage />;
 }
