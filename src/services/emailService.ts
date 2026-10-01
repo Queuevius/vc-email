@@ -3,6 +3,11 @@ import imaps from "imap-simple";
 import { simpleParser, ParsedMail } from "mailparser";
 import { Email } from "@/types/email";
 
+// PC-4 chunk 2 (30 September 2026): mail is listed 30 at a time, newest
+// first, with no 30-day cutoff. A mailbox that cannot be reached is reported
+// instead of looking empty. Un-starring fixed. The page no longer saves its
+// own copy of sent mail, because Zoho already keeps one.
+
 interface SendEmailParams {
   from: string;
   fromName?: string;
@@ -14,14 +19,24 @@ interface SendEmailParams {
   html?: string;
 }
 
-interface EmailCache {
+// One page of a folder, newest first.
+export interface EmailPage {
   emails: Email[];
-  timestamp: number;
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
-// Shared cache across all instances (mailbox -> cache)
-let globalEmailCacheMap: Map<string, EmailCache> = new Map();
+export const PAGE_SIZE = 30;
 const CACHE_TTL = 60000; // 60 seconds
+
+// Shared caches across all instances
+const globalPageCache = new Map<string, { result: EmailPage; timestamp: number }>();
+const globalEmailById = new Map<string, { email: Email; timestamp: number }>();
+
+// Shared transporter across all instances
+let globalTransporter: Transporter | null = null;
+let globalSmtpConfigured: boolean = false;
 
 // PC-4: every email's id carries its folder, e.g. "INBOX-12" or "Sent-12".
 // Zoho numbers each folder separately, so a bare number is ambiguous.
@@ -52,10 +67,6 @@ export function parseEmailId(emailId: string): { mailbox: string; uid: number } 
   return { mailbox: emailId.slice(0, dash), uid: parseInt(emailId.slice(dash + 1)) };
 }
 
-// Shared transporter across all instances
-let globalTransporter: Transporter | null = null;
-let globalSmtpConfigured: boolean = false;
-
 export class EmailService {
   private transporter: Transporter;
   private smtpConfigured: boolean = false;
@@ -76,25 +87,21 @@ export class EmailService {
       this.transporter = createTransport({
         host: process.env.EMAIL_SERVER_HOST,
         port: port,
-        secure: secure, // true for 465, false for other ports (STARTTLS)
-        requireTLS: !secure && port === 587, // Require TLS for port 587
+        secure: secure,
+        requireTLS: !secure && port === 587,
         auth: {
           user: process.env.EMAIL_SERVER_USER,
           pass: process.env.EMAIL_SERVER_PASSWORD,
         },
         tls: {
-          // Do not fail on invalid certificates (useful for self-signed certs)
           rejectUnauthorized: process.env.EMAIL_SERVER_REJECT_UNAUTHORIZED !== "true",
         },
-        // Connection timeout
-        connectionTimeout: 10000, // 10 seconds
-        // Greeting timeout
-        greetingTimeout: 5000, // 5 seconds
-        // Socket timeout
-        socketTimeout: 10000, // 10 seconds
-        pool: true, // Use pooled connections
-        maxConnections: 5, // Limit max connections
-        maxMessages: 100, // Limit messages per connection
+        connectionTimeout: 10000,
+        greetingTimeout: 5000,
+        socketTimeout: 10000,
+        pool: true,
+        maxConnections: 5,
+        maxMessages: 100,
       });
 
       this.smtpConfigured = true;
@@ -116,9 +123,6 @@ export class EmailService {
     globalSmtpConfigured = this.smtpConfigured;
   }
 
-  /**
-   * Verify SMTP connection
-   */
   private async verifyConnection(): Promise<boolean> {
     if (!this.smtpConfigured) {
       return false;
@@ -134,7 +138,7 @@ export class EmailService {
     }
   }
 
-  private async getImapConnection() {
+  private async getImapConnection(): Promise<any> {
     const config = {
       imap: {
         user: process.env.IMAP_USER || "",
@@ -155,12 +159,10 @@ export class EmailService {
   }
 
   async sendEmail(params: SendEmailParams, userId: string): Promise<Email> {
-    // Validate required parameters
     if (!params.from || !params.to || !params.subject) {
       throw new Error("Missing required email parameters: from, to, and subject are required");
     }
 
-    // Validate email addresses
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(params.from)) {
       throw new Error("Invalid sender email address");
@@ -178,7 +180,6 @@ export class EmailService {
       }
     }
 
-    // Ensure we have either text or HTML content
     if (!params.text && !params.html) {
       throw new Error("Email must have either text or HTML content");
     }
@@ -186,7 +187,6 @@ export class EmailService {
     try {
       let info: any = { messageId: `mock-${Date.now()}` };
 
-      // If SMTP is configured, verify connection before sending
       if (this.smtpConfigured) {
         try {
           await this.verifyConnection();
@@ -196,7 +196,6 @@ export class EmailService {
       }
 
       try {
-        // Send the email
         info = await this.transporter.sendMail({
           from: params.fromName
             ? { name: params.fromName, address: params.from }
@@ -207,7 +206,6 @@ export class EmailService {
           subject: params.subject,
           text: params.text,
           html: params.html,
-          // Add headers for better email deliverability
           headers: {
             "X-Mailer": "VC Email System",
             "X-Priority": "3",
@@ -222,7 +220,6 @@ export class EmailService {
       } catch (sendError: any) {
         console.error("Failed to send email via transport:", sendError.message);
 
-        // Provide more specific error messages
         if (sendError.code === "EAUTH") {
           throw new Error("SMTP authentication failed. Please check your email credentials.");
         } else if (sendError.code === "ECONNECTION") {
@@ -234,32 +231,10 @@ export class EmailService {
         }
       }
 
-      // Optional: Store in Sent mailbox if IMAP is configured
-      if (process.env.IMAP_HOST && process.env.IMAP_USER && process.env.IMAP_PASSWORD) {
-        try {
-          const sentMailbox = process.env.IMAP_SENT_MAILBOX || "Sent";
-          let connection = await this.getImapConnection();
-          await connection.openBox(sentMailbox);
+      // PC-4 chunk 2: Zoho keeps its own copy of every sent email in Sent
+      // (marked "X-Mailer: VC Email System"), so the page no longer tries to.
+      this.invalidateCache(process.env.IMAP_SENT_MAILBOX || "Sent");
 
-          const date = new Date();
-          const from = params.fromName ? `"${params.fromName}" <${params.from}>` : params.from;
-
-          await (connection as any).append(
-            `From: ${from}\r\nTo: ${params.to}\r\nSubject: ${params.subject}\r\nDate: ${date.toUTCString()}\r\nContent-Type: text/html; charset=utf-8\r\n\r\n${params.html || params.text}`,
-            {
-              mailbox: sentMailbox,
-              flags: ["\\Seen"],
-              date: date
-            }
-          );
-          connection.end();
-          this.invalidateCache(sentMailbox);
-        } catch (appendError) {
-          console.warn("Failed to append email to Sent mailbox:", appendError);
-        }
-      }
-
-      // Return a mock email object since we're not saving to DB
       return {
         id: `sent-${Date.now()}`,
         messageId: info.messageId || `mock-${Date.now()}`,
@@ -282,7 +257,6 @@ export class EmailService {
       };
     } catch (error: any) {
       console.error("Error sending email:", error);
-      // Re-throw with the original error message if it's already a user-friendly error
       if (error.message && error.message.startsWith("SMTP") || error.message.startsWith("Failed to send") || error.message.startsWith("Missing") || error.message.startsWith("Invalid")) {
         throw error;
       }
@@ -290,121 +264,134 @@ export class EmailService {
     }
   }
 
-  private isCacheValid(mailbox: string): boolean {
-    const cache = globalEmailCacheMap.get(mailbox);
-    if (!cache) return false;
+  // Forget saved copies so the next look asks Zoho again.
+  invalidateCache(mailbox?: string): void {
+    if (!mailbox) {
+      globalPageCache.clear();
+      globalEmailById.clear();
+      return;
+    }
+    for (const key of Array.from(globalPageCache.keys())) {
+      if (key.startsWith(`${mailbox}:`)) globalPageCache.delete(key);
+    }
+    for (const key of Array.from(globalEmailById.keys())) {
+      if (key.startsWith(`${mailbox}-`)) globalEmailById.delete(key);
+    }
+  }
+
+  private rememberEmails(emails: Email[]): void {
     const now = Date.now();
-    return (now - cache.timestamp) < CACHE_TTL;
-  }
-
-  private invalidateCache(mailbox?: string): void {
-    if (mailbox) {
-      globalEmailCacheMap.delete(mailbox);
-    } else {
-      globalEmailCacheMap.clear();
+    for (const email of emails) {
+      globalEmailById.set(email.id, { email, timestamp: now });
     }
   }
 
-  async fetchEmailsFromIMAP(options?: {
-    mailbox?: string;
-    limit?: number;
-  }): Promise<Email[]> {
-    const mailbox = options?.mailbox || process.env.IMAP_MAILBOX || "INBOX";
+  // Every email number in the open folder (numbers only, no content).
+  private listUids(connection: any): Promise<number[]> {
+    return new Promise((resolve, reject) => {
+      connection.imap.search(["ALL"], (err: any, uids: number[]) => {
+        if (err) reject(err);
+        else resolve(uids || []);
+      });
+    });
+  }
 
-    // Check cache first
-    if (this.isCacheValid(mailbox)) {
-      console.log(`Returning cached emails for mailbox: ${mailbox}`);
-      return globalEmailCacheMap.get(mailbox)!.emails;
+  private async parseMessage(connection: any, mailbox: string, message: any): Promise<Email | null> {
+    try {
+      let emailBody: string | Buffer | undefined;
+      if (message.parts && message.parts.length > 0) {
+        emailBody = message.parts[0].body;
+      } else {
+        emailBody = message.body;
+      }
+
+      if (!emailBody) {
+        const allParts = imaps.getParts(message.attributes.struct);
+        const part = allParts.find((p: any) => p.which === "TEXT") || allParts[0];
+        if (part) {
+          emailBody = await connection.getPartData(message, part);
+        }
+      }
+
+      if (!emailBody) return null;
+
+      const parsedEmail: ParsedMail = await simpleParser(emailBody);
+      const flags = message.attributes.flags || [];
+
+      return {
+        id: makeEmailId(mailbox, message.attributes.uid),
+        messageId: parsedEmail.messageId || `imap-${message.attributes.uid}`,
+        from: parsedEmail.from?.value?.[0]?.address || parsedEmail.from?.text || "unknown@unknown.com",
+        to: (parsedEmail.to as any)?.value?.map((addr: any) => addr.address).join(", ") || (parsedEmail.to as any)?.text || "",
+        cc: (parsedEmail.cc as any)?.value?.map((addr: any) => addr.address).join(", ") || (parsedEmail.cc as any)?.text || null,
+        bcc: (parsedEmail.bcc as any)?.value?.map((addr: any) => addr.address).join(", ") || (parsedEmail.bcc as any)?.text || null,
+        subject: parsedEmail.subject || "(No Subject)",
+        bodyText: parsedEmail.text || null,
+        bodyHtml: parsedEmail.html || null,
+        attachments: parsedEmail.attachments?.map((att: any) => `${att.filename || "unnamed"}:${att.size || 0}`).join(",") || null,
+        sentAt: parsedEmail.date || new Date(),
+        receivedAt: message.attributes.date || new Date(),
+        size: (typeof parsedEmail.text === "string" ? parsedEmail.text.length : 0) + (typeof parsedEmail.html === "string" ? parsedEmail.html.length : 0),
+        headers: JSON.stringify(parsedEmail.headers),
+        isRead: flags.includes("\\Seen"),
+        isStarred: flags.includes("\\Flagged"),
+        labels: null,
+        senderId: null,
+      } as Email;
+    } catch (err) {
+      console.error(`Error parsing email ${message?.attributes?.uid}:`, err);
+      return null;
     }
+  }
 
-    console.log(`Fetching fresh emails from IMAP mailbox: ${mailbox}...`);
-    const limit = options?.limit || parseInt(process.env.IMAP_FETCH_LIMIT || "50");
+  // Fetch whole emails by number from the open folder, newest first.
+  private async fetchByUids(connection: any, mailbox: string, uids: number[]): Promise<Email[]> {
+    if (uids.length === 0) return [];
+    const messages = await connection.search([["UID", uids.join(",")]], {
+      bodies: "",
+      struct: true,
+      markSeen: false,
+    });
+    const parsed = await Promise.all(messages.map((m: any) => this.parseMessage(connection, mailbox, m)));
+    const emails = parsed.filter((e): e is Email => e !== null);
+    emails.sort((a, b) => parseEmailId(b.id).uid - parseEmailId(a.id).uid);
+    this.rememberEmails(emails);
+    return emails;
+  }
+
+  // One page of a folder: page 1 is the newest PAGE_SIZE emails.
+  async getEmailPage(mailbox: string, page: number = 1, pageSize: number = PAGE_SIZE): Promise<EmailPage> {
+    const key = `${mailbox}:${page}:${pageSize}`;
+    const cached = globalPageCache.get(key);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return cached.result;
+    }
 
     let connection: any;
     try {
       connection = await this.getImapConnection();
       await connection.openBox(mailbox);
-
-      const since = new Date();
-      since.setDate(since.getDate() - 30);
-
-      const searchCriteria = [["SINCE", since]];
-      const fetchOptions = {
-        bodies: "",
-        struct: true,
-        markSeen: false,
-      };
-
-      const messages = await connection.search(searchCriteria, fetchOptions);
-      // Get latest emails first
-      const sortedMessages = messages.sort((a: any, b: any) => b.attributes.uid - a.attributes.uid);
-      const emailsToProcess = sortedMessages.slice(0, limit);
-
-      // Process emails in parallel for better performance
-      const emailPromises = emailsToProcess.map(async (message: any) => {
-        try {
-          let emailBody: string | Buffer | undefined;
-          if (message.parts && message.parts.length > 0) {
-            emailBody = message.parts[0].body;
-          } else {
-            emailBody = (message as any).body;
-          }
-
-          if (!emailBody) {
-            const allParts = imaps.getParts(message.attributes.struct);
-            const part = allParts.find((part: any) => part.which === "TEXT") || allParts[0];
-            if (part) {
-              emailBody = await connection.getPartData(message, part);
-            }
-          }
-
-          if (!emailBody) return null;
-
-          const parsedEmail: ParsedMail = await simpleParser(emailBody);
-          const flags = message.attributes.flags || [];
-
-          return {
-            id: makeEmailId(mailbox, message.attributes.uid),
-            messageId: parsedEmail.messageId || `imap-${message.attributes.uid}`,
-            from: parsedEmail.from?.value?.[0]?.address || parsedEmail.from?.text || "unknown@unknown.com",
-            to: (parsedEmail.to as any)?.value?.map((addr: any) => addr.address).join(", ") || (parsedEmail.to as any)?.text || "",
-            cc: (parsedEmail.cc as any)?.value?.map((addr: any) => addr.address).join(", ") || (parsedEmail.cc as any)?.text || null,
-            bcc: (parsedEmail.bcc as any)?.value?.map((addr: any) => addr.address).join(", ") || (parsedEmail.bcc as any)?.text || null,
-            subject: parsedEmail.subject || "(No Subject)",
-            bodyText: parsedEmail.text || null,
-            bodyHtml: parsedEmail.html || null,
-            attachments: parsedEmail.attachments?.map((att: any) => `${att.filename || "unnamed"}:${att.size || 0}`).join(",") || null,
-            sentAt: parsedEmail.date || new Date(),
-            receivedAt: message.attributes.date || new Date(),
-            size: (typeof parsedEmail.text === 'string' ? parsedEmail.text.length : 0) + (typeof parsedEmail.html === 'string' ? parsedEmail.html.length : 0),
-            headers: JSON.stringify(parsedEmail.headers),
-            isRead: flags.includes("\\Seen"),
-            isStarred: flags.includes("\\Flagged"),
-            labels: null,
-            senderId: null,
-          } as Email;
-        } catch (err) {
-          console.error(`Error parsing email ${message.attributes.uid}:`, err);
-          return null;
-        }
-      });
-
-      const emailResults = await Promise.all(emailPromises);
-      const emails = emailResults.filter((email): email is Email => email !== null);
-
-      // Cache the fetched emails
-      globalEmailCacheMap.set(mailbox, {
-        emails,
-        timestamp: Date.now()
-      });
-
-      return emails;
+      const uids = (await this.listUids(connection)).sort((a, b) => b - a);
+      const start = (page - 1) * pageSize;
+      const pageUids = uids.slice(start, start + pageSize);
+      const emails = await this.fetchByUids(connection, mailbox, pageUids);
+      const result: EmailPage = { emails, total: uids.length, page, pageSize };
+      globalPageCache.set(key, { result, timestamp: Date.now() });
+      return result;
     } catch (error) {
+      // PC-4 chunk 2: a mailbox that cannot be reached is reported, not shown as empty.
       console.error("IMAP error:", error);
-      return [];
+      throw new Error("Could not reach the mailbox");
     } finally {
       if (connection) connection.end();
     }
+  }
+
+  // Newest emails of a folder (used by Adele, the dashboard and Refresh).
+  async fetchEmailsFromIMAP(options?: { mailbox?: string; limit?: number }): Promise<Email[]> {
+    const mailbox = options?.mailbox || process.env.IMAP_MAILBOX || "INBOX";
+    const limit = options?.limit || PAGE_SIZE;
+    return (await this.getEmailPage(mailbox, 1, limit)).emails;
   }
 
   async getUserEmails(userId: string, mailbox: string = "INBOX") {
@@ -415,37 +402,42 @@ export class EmailService {
     return this.fetchEmailsFromIMAP({ mailbox });
   }
 
-  async getEmailById(emailId: string) {
-    // Try to get from cache first (instant)
-    for (const [mailbox, cache] of globalEmailCacheMap.entries()) {
-      const cachedEmail = cache.emails.find(e => e.id === emailId);
-      if (cachedEmail) {
-        console.log(`Returning email ${emailId} from cache (${mailbox})`);
-        return cachedEmail;
-      }
+  async getEmailById(emailId: string): Promise<Email | null> {
+    const cached = globalEmailById.get(emailId);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return cached.email;
     }
 
-    // If not in cache, fetch all emails (this will also populate cache)
-    const { mailbox: idMailbox } = parseEmailId(emailId); // PC-4 by-id
-    if (!isAllowedMailbox(idMailbox)) return null;
-    console.log(`Email not in cache, fetching ${idMailbox} from IMAP...`);
-    const emails = await this.fetchEmailsFromIMAP({ mailbox: idMailbox, limit: 100 });
-    return emails.find(e => e.id === emailId) || null;
-  }
+    const { mailbox, uid } = parseEmailId(emailId);
+    if (!isAllowedMailbox(mailbox) || !Number.isFinite(uid)) return null;
 
-  async toggleStar(emailId: string, isStarred: boolean) {
-    let connection;
+    let connection: any;
     try {
       connection = await this.getImapConnection();
-      const { mailbox, uid } = parseEmailId(emailId); // PC-4 star
+      await connection.openBox(mailbox);
+      const emails = await this.fetchByUids(connection, mailbox, [uid]);
+      return emails[0] || null;
+    } catch (error) {
+      console.error("Error fetching email by id:", error);
+      return null;
+    } finally {
+      if (connection) connection.end();
+    }
+  }
+
+  async toggleStar(emailId: string, isStarred: boolean): Promise<{ success: boolean; error?: string }> {
+    let connection: any;
+    try {
+      const { mailbox, uid } = parseEmailId(emailId);
       if (!isAllowedMailbox(mailbox)) throw new Error(`Folder not allowed: ${mailbox}`);
+      connection = await this.getImapConnection();
       await connection.openBox(mailbox);
       if (isStarred) {
         await connection.addFlags(uid, "\\Flagged");
       } else {
-        await connection.removeFlags(uid, "\\Flagged");
+        await connection.delFlags(uid, "\\Flagged");
       }
-      this.invalidateCache(); // Invalidate cache after operation
+      this.invalidateCache(mailbox);
       return { success: true };
     } catch (error) {
       console.error("Error toggling star in IMAP:", error);
@@ -455,19 +447,19 @@ export class EmailService {
     }
   }
 
-  async toggleReadStatus(emailId: string, isRead: boolean) {
-    let connection;
+  async toggleReadStatus(emailId: string, isRead: boolean): Promise<{ success: boolean; error?: string }> {
+    let connection: any;
     try {
-      connection = await this.getImapConnection();
-      const { mailbox, uid } = parseEmailId(emailId); // PC-4 read
+      const { mailbox, uid } = parseEmailId(emailId);
       if (!isAllowedMailbox(mailbox)) throw new Error(`Folder not allowed: ${mailbox}`);
+      connection = await this.getImapConnection();
       await connection.openBox(mailbox);
       if (isRead) {
         await connection.addFlags(uid, "\\Seen");
       } else {
-        await connection.removeFlags(uid, "\\Seen");
+        await connection.delFlags(uid, "\\Seen");
       }
-      this.invalidateCache(); // Invalidate cache after operation
+      this.invalidateCache(mailbox);
       return { success: true };
     } catch (error) {
       console.error("Error toggling read status in IMAP:", error);
@@ -477,16 +469,16 @@ export class EmailService {
     }
   }
 
+  // PC-4: delete moves the email to Zoho's Trash folder (recoverable), no permanent erase.
   async deleteEmail(emailId: string): Promise<{ success: boolean; error?: string }> {
-    let connection;
+    let connection: any;
     try {
-      connection = await this.getImapConnection();
-      // PC-4 delete: moves the email to Zoho's Trash folder (recoverable), no permanent erase.
       const { mailbox, uid } = parseEmailId(emailId);
       if (!isAllowedMailbox(mailbox)) throw new Error(`Folder not allowed: ${mailbox}`);
+      connection = await this.getImapConnection();
       await connection.openBox(mailbox);
-      await (connection as any).moveMessage(uid, process.env.IMAP_TRASH_MAILBOX || "Trash");
-      this.invalidateCache(); // Invalidate cache after operation
+      await connection.moveMessage(uid, process.env.IMAP_TRASH_MAILBOX || "Trash");
+      this.invalidateCache(mailbox);
       return { success: true };
     } catch (error) {
       console.error("Error deleting email in IMAP:", error);
@@ -497,13 +489,9 @@ export class EmailService {
   }
 
   async deleteEmails(emailIds: string[]): Promise<{ success: number; failed: number; errors: string[] }> {
-    // Process deletions in parallel for better performance
-    const deletePromises = emailIds.map(async (emailId) => {
-      const result = await this.deleteEmail(emailId);
-      return { emailId, result };
-    });
-
-    const results = await Promise.all(deletePromises);
+    const results = await Promise.all(
+      emailIds.map(async (emailId) => ({ emailId, result: await this.deleteEmail(emailId) }))
+    );
 
     const errors: string[] = [];
     let success = 0;

@@ -129,24 +129,12 @@ export async function POST(req: NextRequest) {
         const baseContextLimit = 20;
 
         if (contextEmailIds.length > 0) {
-            // Specific emails requested
-            if (userId) {
-                const [inboxEmails, sentEmails] = await Promise.all([
-                    emailService.getUserEmails(userId, inboxMailbox),
-                    emailService.getUserEmails(userId, sentMailbox),
-                ]);
-                const mappedInbox = inboxEmails.map((e: any) => ({ ...e, folder: "Inbox" }));
-                const mappedSent = sentEmails.map((e: any) => ({ ...e, folder: "Sent" }));
-                contextEmails = [...mappedInbox, ...mappedSent].filter(e => contextEmailIds.includes(e.id));
-            } else {
-                const [inboxEmails, sentEmails] = await Promise.all([
-                    emailService.getGuestEmails(inboxMailbox),
-                    emailService.getGuestEmails(sentMailbox),
-                ]);
-                const mappedInbox = inboxEmails.map((e: any) => ({ ...e, folder: "Inbox" }));
-                const mappedSent = sentEmails.map((e: any) => ({ ...e, folder: "Sent" }));
-                contextEmails = [...mappedInbox, ...mappedSent].filter(e => contextEmailIds.includes(e.id));
-            }
+            // PC-4 chunk 2: look up each requested email by its folder label,
+            // so Summarize works on emails older than the first page
+            const found = await Promise.all(contextEmailIds.map((id) => emailService.getEmailById(id)));
+            contextEmails = found
+                .filter((e): e is Email => Boolean(e))
+                .map((e) => ({ ...e, folder: e.id.startsWith("Sent-") ? "Sent" : "Inbox" }));
         } else {
             // No specific emails, fetch a mix from Inbox + Sent as default context
             const inboxLimit = Math.floor(baseContextLimit / 2);

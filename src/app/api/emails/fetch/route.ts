@@ -28,6 +28,8 @@ export async function POST(req: NextRequest) {
     const limit = body.limit;
 
     // Fetch emails from IMAP
+    // PC-4 chunk 2: Refresh fetches fresh mail instead of a saved copy
+    emailService.invalidateCache();
     const emails = await emailService.fetchEmailsFromIMAP({ limit });
 
     return Response.json({
