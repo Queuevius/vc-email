@@ -4,6 +4,7 @@ import { useSession } from "next-auth/react";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
+import LogoSettings from "./LogoSettings"; // PC-5 chunk 3
 
 export default function UpdateKBPage() {
     const { data: session, status } = useSession();
@@ -156,6 +157,8 @@ export default function UpdateKBPage() {
                                 </div>
                             </div>
                         )}
+
+                        <LogoSettings />
 
                         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[600px]">
                             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/50">

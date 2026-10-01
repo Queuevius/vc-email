@@ -1,15 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { User } from "next-auth";
 import { signOut } from "next-auth/react";
 
+// PC-5 chunk 3: the logo above the "Adele" button, remembered between pages.
+let cachedLogo: string | null | undefined = undefined;
+
 export default function Sidebar({ user }: { user: User | undefined }) {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
+  const [logo, setLogo] = useState<string | null>(cachedLogo ?? null);
+
+  useEffect(() => {
+    const load = () =>
+      fetch("/api/logo", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          const value: string | null = d.logo || null;
+          cachedLogo = value;
+          setLogo(value);
+        })
+        .catch(() => {});
+    load();
+    window.addEventListener("logo-updated", load);
+    return () => window.removeEventListener("logo-updated", load);
+  }, []);
 
   const handleRefresh = () => {
     window.dispatchEvent(new CustomEvent("trigger-email-refresh"));
@@ -80,6 +99,9 @@ export default function Sidebar({ user }: { user: User | undefined }) {
         ${isOpen ? "translate-x-0" : "-translate-x-full"}
         md:translate-x-0 md:flex md:left-0
       `}>
+        {logo && (
+          <img src={logo} alt="Needpedia" className="w-full max-h-28 object-contain mb-6" />
+        )}
         <nav className="w-full">
           <ul className="space-y-4 flex flex-col items-center">
             {navigation.map((item) => (
