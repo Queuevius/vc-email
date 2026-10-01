@@ -13,7 +13,7 @@ interface Message {
 export default function AIAssistant() {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<Message[]>([
-        { role: "assistant", content: "Hello! I'm your VC Email Assistant. How can I help you today?" }
+        { role: "assistant", content: "Hello! I'm Adele, Needpedia's Volunteer Coordination assistant. How can I help you today?" }
     ]);
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
@@ -123,7 +123,7 @@ export default function AIAssistant() {
                                 </svg>
                             </div>
                             <div>
-                                <h3 className="font-semibold text-white text-sm">VC Assistant</h3>
+                                <h3 className="font-semibold text-white text-sm">Adele</h3>
                                 <div className="flex items-center mt-0.5">
                                     <div className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5"></div>
                                     <span className="text-xs text-slate-400">Online</span>
@@ -226,28 +226,8 @@ export default function AIAssistant() {
                 </div>
             )}
 
-            {/* Toggle Button */}
-            <button
-                id="ai-assistant-toggle"
-                onClick={() => setIsOpen(!isOpen)}
-                className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-5 py-3.5 shadow-lg hover:shadow-xl transition-all flex items-center gap-2 font-medium text-sm"
-            >
-                {isOpen ? (
-                    <>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                        Close
-                    </>
-                ) : (
-                    <>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                        </svg>
-                        Chat with AI
-                    </>
-                )}
-            </button>
+            {/* PC-5 chunk 3: the extra "Chat with AI" button was removed. The
+                "Adele" button in the left menu opens this window. */}
         </div>
     );
 }

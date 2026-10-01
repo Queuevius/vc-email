@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 export default function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false); // PC-5 chunk 3
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
@@ -73,7 +74,7 @@ export default function LoginForm() {
           <input
             id="password"
             name="password"
-            type="password"
+            type={showPassword ? "text" : "password"}
             autoComplete="current-password"
             required
             value={password}
@@ -84,7 +85,14 @@ export default function LoginForm() {
         </div>
       </div>
 
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setShowPassword((v) => !v)}
+          className="ml-1 text-sm font-medium text-blue-600 hover:text-blue-500 transition-colors"
+        >
+          {showPassword ? "Hide password" : "Show password"}
+        </button>
         <div className="text-sm">
           <a href="#" className="font-medium text-blue-600 hover:text-blue-500 transition-colors">
             Forgot password?

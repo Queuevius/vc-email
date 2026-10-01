@@ -16,6 +16,8 @@ const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL?.trim();
 const SITE_URL = process.env.OPENROUTER_SITE_URL || "http://localhost:3000";
 const SITE_NAME = process.env.OPENROUTER_SITE_NAME || "VC Email Assistant";
 
+// PC-5 chunk 3: Adele's name, and VC means Volunteer Coordination (it said
+// "Venture Capital" and "deal flow" before).
 export class AIService {
     private model: string | undefined = OPENROUTER_MODEL;
 
@@ -39,10 +41,10 @@ export class AIService {
         }
 
         // Construct the system prompt
-        let systemPrompt = `You are a helpful AI Email Assistant for Needpedia/Venture Capital. 
+        let systemPrompt = `You are Adele, the AI email assistant for Needpedia Volunteer Coordination. VC means Volunteer Coordination. 
     You have access to a selection of the user's emails to answer questions. 
     Use the provided email content as your primary knowledge base.
-    If multiple emails are provided, they represent the most recent deal flow and communications.
+    If multiple emails are provided, they represent the most recent volunteer coordination emails.
     Always be professional, concise, and accurate.${context?.userEmail ? `\n    The current user's email address is: ${context.userEmail}` : ""}
     IMPORTANT: Any email in the context labeled with "Folder: Sent" is an email sent OUT by the user, regardless of the 'From' address. Emails labeled "Folder: Inbox" are received emails.
     `;
