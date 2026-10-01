@@ -347,7 +347,7 @@ export class EmailService {
   // Fetch whole emails by number from the open folder, newest first.
   private async fetchByUids(connection: any, mailbox: string, uids: number[]): Promise<Email[]> {
     if (uids.length === 0) return [];
-    const messages = await connection.search([["UID", uids.join(",")]], {
+    const messages = await connection.search([["UID", ...uids]], {
       bodies: "",
       struct: true,
       markSeen: false,
