@@ -23,6 +23,35 @@ interface EmailCache {
 let globalEmailCacheMap: Map<string, EmailCache> = new Map();
 const CACHE_TTL = 60000; // 60 seconds
 
+// PC-4: every email's id carries its folder, e.g. "INBOX-12" or "Sent-12".
+// Zoho numbers each folder separately, so a bare number is ambiguous.
+// Only these folders can be read or changed from the page.
+function allowedMailboxes(): string[] {
+  return Array.from(new Set([
+    process.env.IMAP_MAILBOX || "INBOX",
+    process.env.IMAP_SENT_MAILBOX || "Sent",
+    "INBOX",
+    "Sent",
+  ]));
+}
+
+export function isAllowedMailbox(mailbox: string): boolean {
+  return allowedMailboxes().includes(mailbox);
+}
+
+export function makeEmailId(mailbox: string, uid: number | string): string {
+  return `${mailbox}-${uid}`;
+}
+
+export function parseEmailId(emailId: string): { mailbox: string; uid: number } {
+  const dash = emailId.lastIndexOf("-");
+  if (dash === -1) {
+    // Old-style id with no folder: treat it as received mail.
+    return { mailbox: process.env.IMAP_MAILBOX || "INBOX", uid: parseInt(emailId) };
+  }
+  return { mailbox: emailId.slice(0, dash), uid: parseInt(emailId.slice(dash + 1)) };
+}
+
 // Shared transporter across all instances
 let globalTransporter: Transporter | null = null;
 let globalSmtpConfigured: boolean = false;
@@ -335,7 +364,7 @@ export class EmailService {
           const flags = message.attributes.flags || [];
 
           return {
-            id: message.attributes.uid.toString(),
+            id: makeEmailId(mailbox, message.attributes.uid),
             messageId: parsedEmail.messageId || `imap-${message.attributes.uid}`,
             from: parsedEmail.from?.value?.[0]?.address || parsedEmail.from?.text || "unknown@unknown.com",
             to: (parsedEmail.to as any)?.value?.map((addr: any) => addr.address).join(", ") || (parsedEmail.to as any)?.text || "",
@@ -397,8 +426,10 @@ export class EmailService {
     }
 
     // If not in cache, fetch all emails (this will also populate cache)
-    console.log('Email not in cache, fetching from IMAP...');
-    const emails = await this.fetchEmailsFromIMAP({ limit: 100 });
+    const { mailbox: idMailbox } = parseEmailId(emailId); // PC-4 by-id
+    if (!isAllowedMailbox(idMailbox)) return null;
+    console.log(`Email not in cache, fetching ${idMailbox} from IMAP...`);
+    const emails = await this.fetchEmailsFromIMAP({ mailbox: idMailbox, limit: 100 });
     return emails.find(e => e.id === emailId) || null;
   }
 
@@ -406,8 +437,9 @@ export class EmailService {
     let connection;
     try {
       connection = await this.getImapConnection();
-      await connection.openBox("INBOX");
-      const uid = parseInt(emailId);
+      const { mailbox, uid } = parseEmailId(emailId); // PC-4 star
+      if (!isAllowedMailbox(mailbox)) throw new Error(`Folder not allowed: ${mailbox}`);
+      await connection.openBox(mailbox);
       if (isStarred) {
         await connection.addFlags(uid, "\\Flagged");
       } else {
@@ -427,8 +459,9 @@ export class EmailService {
     let connection;
     try {
       connection = await this.getImapConnection();
-      await connection.openBox("INBOX");
-      const uid = parseInt(emailId);
+      const { mailbox, uid } = parseEmailId(emailId); // PC-4 read
+      if (!isAllowedMailbox(mailbox)) throw new Error(`Folder not allowed: ${mailbox}`);
+      await connection.openBox(mailbox);
       if (isRead) {
         await connection.addFlags(uid, "\\Seen");
       } else {
@@ -448,12 +481,11 @@ export class EmailService {
     let connection;
     try {
       connection = await this.getImapConnection();
-      await connection.openBox("INBOX");
-      const uid = parseInt(emailId);
-      await connection.addFlags(uid, "\\Deleted");
-      await (connection as any).imap.expunge((err: any) => {
-        if (err) console.error("Expunge error:", err);
-      });
+      // PC-4 delete: moves the email to Zoho's Trash folder (recoverable), no permanent erase.
+      const { mailbox, uid } = parseEmailId(emailId);
+      if (!isAllowedMailbox(mailbox)) throw new Error(`Folder not allowed: ${mailbox}`);
+      await connection.openBox(mailbox);
+      await (connection as any).moveMessage(uid, process.env.IMAP_TRASH_MAILBOX || "Trash");
       this.invalidateCache(); // Invalidate cache after operation
       return { success: true };
     } catch (error) {

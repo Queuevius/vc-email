@@ -5,7 +5,7 @@ import { User } from 'next-auth'
 describe('Permissions', () => {
     const adminUser: User = { id: '1', role: 'ADMIN', name: 'Admin', email: 'admin@example.com' }
     const readOnlyUser: User = { id: '2', role: 'READ_ONLY', name: 'ReadOnly', email: 'readonly@example.com' }
-    const regularUser: User = { id: '3', role: 'USER', name: 'User', email: 'user@example.com' }
+    const regularUser: User = { id: '3', role: 'USER' as any, name: 'User', email: 'user@example.com' }
 
     describe('isAdmin', () => {
         it('should return true for ADMIN role', () => {

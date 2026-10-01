@@ -57,7 +57,7 @@ export default function EmailDetailPageContent({ email, user }: EmailDetailPageC
     startTransition(async () => {
       const result = await deleteEmail(email.id);
       if (result.success) {
-        router.push("/inbox");
+        router.push(backHref);
       } else {
         alert(result.error);
       }
@@ -76,6 +76,8 @@ export default function EmailDetailPageContent({ email, user }: EmailDetailPageC
   };
 
   const isAdmin = user?.role === "ADMIN";
+  const isSent = email.id.startsWith("Sent-"); // PC-4 back link
+  const backHref = isSent ? "/sent" : "/inbox";
 
   const getSenderName = (emailAddress: string) => {
     const name = emailAddress.split('@')[0];
@@ -92,15 +94,15 @@ export default function EmailDetailPageContent({ email, user }: EmailDetailPageC
               <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
                 <div className="flex items-center space-x-2">
                   <Link
-                    href="/inbox"
+                    href={backHref}
                     className="p-2 rounded-full hover:bg-gray-200 text-gray-600"
-                    title="Back to inbox"
+                    title={isSent ? "Back to sent" : "Back to inbox"}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 19.5L8.25 12l7.5-7.5" />
                     </svg>
                   </Link>
-                  <span className="text-sm text-gray-600 hidden sm:inline">Back to inbox</span>
+                  <span className="text-sm text-gray-600 hidden sm:inline">{isSent ? "Back to sent" : "Back to inbox"}</span>
                 </div>
                 <div className="flex items-center space-x-2 text-gray-600">
                   <button

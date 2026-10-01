@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth/auth";
-import { EmailService } from "@/services/emailService";
+import { EmailService, isAllowedMailbox } from "@/services/emailService";
 import { NextRequest } from "next/server";
 import { canPerformAction } from "@/lib/permissions";
 
@@ -8,6 +8,10 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const mailbox = searchParams.get("mailbox") || "INBOX";
+    // PC-4: only Inbox and Sent can be read from the page
+    if (!isAllowedMailbox(mailbox)) {
+      return Response.json({ error: "Folder not available" }, { status: 400 });
+    }
 
     const session = await getServerSession(authOptions);
     const emailService = new EmailService();
