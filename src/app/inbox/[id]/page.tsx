@@ -2,6 +2,8 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth/auth";
 import { EmailService } from "@/services/emailService";
 import EmailDetailPageContent from "../EmailDetailPageContent";
+import { loadYesList, isHeld } from "@/lib/consent";
+import { Email } from "@/types/email";
 
 interface EmailDetailPageProps {
   params: Promise<{
@@ -15,7 +17,20 @@ export default async function EmailDetailPage(props: EmailDetailPageProps) {
   const emailService = new EmailService();
 
   // Fetch the specific email
-  const email = await emailService.getEmailById(params.id);
+  const found = await emailService.getEmailById(params.id);
+
+  // PC-5 consent: an email not public yet shows as "not found" to everyone
+  // but Tony's admin login. If the yes list cannot be read, it counts as held.
+  let email: Email | null = found;
+  if (found) {
+    let held = true;
+    try {
+      held = isHeld(found, await loadYesList());
+    } catch (err) {
+      console.error("Consent list unavailable:", err);
+    }
+    email = held && session?.user?.role !== "ADMIN" ? null : { ...found, held };
+  }
 
   if (!email) {
     return (

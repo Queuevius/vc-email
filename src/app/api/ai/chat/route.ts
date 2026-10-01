@@ -5,6 +5,7 @@ import { AIService, ChatMessage } from "@/lib/ai";
 import { GuidescriptService } from "@/lib/guidescript";
 import { EmailService } from "@/services/emailService";
 import { Email } from "@/types/email";
+import { loadYesList, isHeld } from "@/lib/consent";
 
 const NEEDPEDIA_API = process.env.NEXT_PUBLIC_API_BASE_URL || "https://needpedia.org";
 const POST_TOKEN = process.env.POST_TOKEN || "";
@@ -157,6 +158,16 @@ export async function POST(req: NextRequest) {
             contextEmails = [...mappedInbox, ...mappedSent].sort(
                 (a, b) => b.sentAt.getTime() - a.sentAt.getTime()
             );
+        }
+
+        // PC-5 consent: Adele never receives an email that is not public yet,
+        // even for Tony's admin login. If the list cannot be read, she gets none.
+        try {
+            const yes = await loadYesList();
+            contextEmails = contextEmails.filter((e) => !isHeld(e, yes));
+        } catch (err) {
+            console.error("Consent list unavailable; Adele gets no emails:", err);
+            contextEmails = [];
         }
 
         const userEmailForAI = session?.user?.email || process.env.GUEST_EMAIL || "guest@example.com";

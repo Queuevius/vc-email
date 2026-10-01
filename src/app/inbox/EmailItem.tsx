@@ -153,6 +153,15 @@ function EmailItem({ email, userRole, onDelete, onSelect, isSelected = false }: 
           <p className={`truncate text-sm ${email.isRead ? "text-gray-900" : "font-semibold text-gray-900"}`}>
             {truncatedSubject}
           </p>
+          {/* PC-5 consent: only Tony's admin login ever receives held emails */}
+          {email.held && (
+            <span
+              className="shrink-0 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800"
+              title="Someone on this email has not said yes yet"
+            >
+              not public yet
+            </span>
+          )}
           <p className="truncate text-sm text-gray-400">
             <span className="hidden sm:inline">- </span>
             {truncatedBody}

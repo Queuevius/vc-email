@@ -3,6 +3,7 @@ import { authOptions } from "@/auth/auth";
 import { EmailService } from "@/services/emailService";
 import { NextRequest } from "next/server";
 import { canPerformAction } from "@/lib/permissions";
+import { loadYesList, isHeld } from "@/lib/consent";
 
 export async function GET(
   req: NextRequest,
@@ -17,7 +18,16 @@ export async function GET(
       return Response.json({ error: "Email not found" }, { status: 404 });
     }
 
-    return Response.json({ email });
+    // PC-5 consent: an email not public yet is "not found" for everyone but
+    // Tony's admin login.
+    const yes = await loadYesList();
+    const held = isHeld(email, yes);
+    const viewer = await getServerSession(authOptions);
+    if (held && viewer?.user?.role !== "ADMIN") {
+      return Response.json({ error: "Email not found" }, { status: 404 });
+    }
+
+    return Response.json({ email: { ...email, held } });
   } catch (error) {
     console.error("Error fetching email:", error);
     return Response.json({ error: "Failed to fetch email" }, { status: 500 });

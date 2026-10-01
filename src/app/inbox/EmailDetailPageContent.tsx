@@ -144,6 +144,15 @@ export default function EmailDetailPageContent({ email, user }: EmailDetailPageC
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h1 className="text-2xl font-semibold text-gray-900">{email.subject}</h1>
+                    {/* PC-5 consent: only Tony's admin login ever receives held emails */}
+                    {email.held && (
+                      <p
+                        className="mt-1 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800"
+                        title="Someone on this email has not said yes yet"
+                      >
+                        not public yet
+                      </p>
+                    )}
                     <p className="text-sm text-gray-500 mt-1">
                       To {email.to} {email.cc ? `• Cc ${email.cc}` : ""}
                     </p>

@@ -17,4 +17,5 @@ export interface Email {
     isStarred: boolean;
     labels: string | null;
     senderId: string | null;
+    held?: boolean; // PC-5 consent: true = not public yet
 }

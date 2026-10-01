@@ -3,6 +3,7 @@ import { authOptions } from "@/auth/auth";
 import { EmailService } from "@/services/emailService";
 import { NextRequest } from "next/server";
 import { canPerformAction } from "@/lib/permissions";
+import { extractAddresses, ownAddresses, loadYesList, noteForText, noteForHtml } from "@/lib/consent";
 
 export async function POST(req: NextRequest) {
   try {
@@ -29,6 +30,25 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Missing sender email address" }, { status: 400 });
     }
 
+    // PC-5 consent: Tony's note and a personal yes link go on every email sent
+    // to someone who has not said yes. If the list cannot be read, everyone
+    // gets the note.
+    const own = ownAddresses();
+    const recipients = extractAddresses(to, cc, bcc).filter((a) => !own.has(a));
+    let notYes = recipients;
+    try {
+      const yes = await loadYesList();
+      notYes = recipients.filter((a) => !yes.has(a));
+    } catch (err) {
+      console.error("Consent list unavailable; adding the note for every recipient:", err);
+    }
+    let finalText: string | undefined = text;
+    let finalHtml: string | undefined = html;
+    if (notYes.length > 0) {
+      finalText = (text || "") + noteForText(notYes);
+      if (html) finalHtml = html + noteForHtml(notYes);
+    }
+
     const result = await emailService.sendEmail(
       {
         from: senderEmail,
@@ -37,8 +57,8 @@ export async function POST(req: NextRequest) {
         cc,
         bcc,
         subject,
-        text,
-        html,
+        text: finalText,
+        html: finalHtml,
       },
       session.user.id
     );
