@@ -1,9 +1,19 @@
 "use client";
 
 import { User } from "next-auth";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
+
+// PC-6 chunk 4a: text colors offered in the toolbar.
+const COLORS = [
+  { name: "Black", value: "#111827" },
+  { name: "Red", value: "#dc2626" },
+  { name: "Orange", value: "#ea580c" },
+  { name: "Green", value: "#16a34a" },
+  { name: "Blue", value: "#2563eb" },
+  { name: "Purple", value: "#9333ea" },
+];
 
 interface ComposeEmailContentProps {
   user: User;
@@ -14,12 +24,52 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
   const [recentRecipients, setRecentRecipients] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [subject, setSubject] = useState("");
-  const [body, setBody] = useState("");
+  // PC-6 chunk 4a: the message is a formatted text box, not plain text.
+  const [bodyEmpty, setBodyEmpty] = useState(true);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const savedRange = useRef<Range | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
 
   const searchParams = useSearchParams();
+
+  // PC-6 chunk 4a: the toolbar buttons format whatever words are selected.
+  const keepSelection = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && editorRef.current && editorRef.current.contains(sel.anchorNode)) {
+      savedRange.current = sel.getRangeAt(0).cloneRange();
+    }
+  };
+
+  const restoreSelection = () => {
+    const sel = window.getSelection();
+    if (sel && savedRange.current) {
+      sel.removeAllRanges();
+      sel.addRange(savedRange.current);
+    }
+  };
+
+  const format = (command: string, value?: string) => {
+    editorRef.current?.focus();
+    restoreSelection();
+    document.execCommand(command, false, value);
+    keepSelection();
+    setBodyEmpty(!(editorRef.current?.innerText || "").trim());
+  };
+
+  const addLink = () => {
+    keepSelection();
+    if (!savedRange.current || savedRange.current.collapsed) {
+      alert("First select the words you want to turn into a link, then click Link.");
+      return;
+    }
+    let url = window.prompt("Web address for the selected words:", "https://");
+    if (!url) return;
+    url = url.trim();
+    if (!/^(https?:\/\/|mailto:)/i.test(url)) url = "https://" + url;
+    format("createLink", url);
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -46,6 +96,13 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // PC-6 chunk 4a: the message goes out formatted, plus a plain copy.
+    const html = editorRef.current?.innerHTML || "";
+    const text = (editorRef.current?.innerText || "").trim();
+    if (!text) {
+      setError("Please write a message.");
+      return;
+    }
     setIsSending(true);
     setError("");
 
@@ -58,7 +115,8 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
         body: JSON.stringify({
           to,
           subject,
-          text: body,
+          text,
+          html,
         }),
       });
 
@@ -202,14 +260,39 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
                   <label className="text-xs font-medium text-gray-800 uppercase tracking-wide">
                     Message
                   </label>
-                  <textarea
-                    value={body}
-                    onChange={(e) => setBody(e.target.value)}
-                    required
-                    rows={14}
-                    className="w-full px-3 py-3 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                    placeholder="Write your message..."
-                  />
+                  <div className="flex flex-wrap items-center gap-1 border border-gray-300 border-b-0 rounded-t-lg bg-gray-50 px-2 py-1">
+                    <button type="button" title="Bold" onMouseDown={(e) => { e.preventDefault(); format("bold"); }} className="w-8 h-8 rounded hover:bg-gray-200 text-sm font-bold">B</button>
+                    <button type="button" title="Italic" onMouseDown={(e) => { e.preventDefault(); format("italic"); }} className="w-8 h-8 rounded hover:bg-gray-200 text-sm italic">I</button>
+                    <button type="button" title="Underline" onMouseDown={(e) => { e.preventDefault(); format("underline"); }} className="w-8 h-8 rounded hover:bg-gray-200 text-sm underline">U</button>
+                    <span className="mx-1 h-5 w-px bg-gray-300" />
+                    {COLORS.map((col) => (
+                      <button
+                        key={col.value}
+                        type="button"
+                        title={col.name}
+                        onMouseDown={(e) => { e.preventDefault(); format("foreColor", col.value); }}
+                        className="w-5 h-5 m-0.5 rounded-full border border-gray-300"
+                        style={{ backgroundColor: col.value }}
+                      />
+                    ))}
+                    <span className="mx-1 h-5 w-px bg-gray-300" />
+                    <button type="button" title="Select some words first, then click to make them a link" onMouseDown={(e) => { e.preventDefault(); addLink(); }} className="px-2 h-8 rounded hover:bg-gray-200 text-sm text-blue-700 underline">Link</button>
+                    <button type="button" title="Remove the link from the selected words" onMouseDown={(e) => { e.preventDefault(); format("unlink"); }} className="px-2 h-8 rounded hover:bg-gray-200 text-sm text-gray-600">Unlink</button>
+                  </div>
+                  <div className="relative">
+                    <div
+                      ref={editorRef}
+                      contentEditable
+                      suppressContentEditableWarning
+                      onInput={() => { setBodyEmpty(!(editorRef.current?.innerText || "").trim()); keepSelection(); }}
+                      onKeyUp={keepSelection}
+                      onMouseUp={keepSelection}
+                      className="w-full min-h-[20rem] px-3 py-3 text-sm text-gray-900 border border-gray-300 rounded-b-lg focus:outline-none focus:ring-2 focus:ring-blue-500 overflow-auto [&_a]:text-blue-700 [&_a]:underline"
+                    />
+                    {bodyEmpty && (
+                      <span className="pointer-events-none absolute left-3 top-3 text-sm text-gray-400">Write your message...</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between pt-4 border-t border-gray-200">
@@ -226,7 +309,8 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
                       onClick={() => {
                         setTo("");
                         setSubject("");
-                        setBody("");
+                        if (editorRef.current) editorRef.current.innerHTML = "";
+                        setBodyEmpty(true);
                       }}
                       className="px-5 py-2 rounded-full text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400"
                     >

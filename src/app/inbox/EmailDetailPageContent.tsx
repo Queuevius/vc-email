@@ -9,6 +9,29 @@ import DOMPurify from "dompurify";
 import Sidebar from "@/components/layout/Sidebar";
 import { User } from "next-auth";
 
+// PC-6 chunk 4a: received mail keeps bold, italic, underline, colors and
+// links. Every other style rule is dropped, so an email cannot cover or
+// restyle the page. Cleaning happens in the browser.
+const SAFE_STYLE = /^(color|background-color|font-weight|font-style|text-decoration)\s*:/i;
+let styleHookAdded = false;
+function cleanHtml(html: string): string {
+  if (!styleHookAdded) {
+    styleHookAdded = true;
+    DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
+      if (data.attrName !== "style") return;
+      data.attrValue = String(data.attrValue || "")
+        .split(";")
+        .map((s) => s.trim())
+        .filter((s) => SAFE_STYLE.test(s) && !/url\(|expression|var\(/i.test(s))
+        .join("; ");
+    });
+  }
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ["p", "br", "strong", "b", "em", "i", "u", "s", "strike", "font", "a", "ul", "ol", "li", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "div", "span", "hr", "pre", "code"],
+    ALLOWED_ATTR: ["href", "target", "rel", "class", "style", "color"],
+  });
+}
+
 interface EmailDetailPageContentProps {
   email: Email;
   user?: User;
@@ -221,10 +244,7 @@ export default function EmailDetailPageContent({ email, user }: EmailDetailPageC
                     <div
                       className="text-gray-900"
                       dangerouslySetInnerHTML={{
-                        __html: DOMPurify.sanitize(email.bodyHtml, {
-                          ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'a', 'ul', 'ol', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span'],
-                          ALLOWED_ATTR: ['href', 'target', 'rel', 'class']
-                        })
+                        __html: mounted ? cleanHtml(email.bodyHtml) : ""
                       }}
                     />
                   ) : (
