@@ -13,6 +13,13 @@ import { User } from "next-auth";
 // links. Every other style rule is dropped, so an email cannot cover or
 // restyle the page. Cleaning happens in the browser.
 const SAFE_STYLE = /^(color|background-color|font-weight|font-style|text-decoration)\s*:/i;
+// PC-6 chunk 4b: file sizes in plain words.
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  if (bytes >= 1024) return Math.round(bytes / 1024) + " KB";
+  return bytes + " bytes";
+}
+
 let styleHookAdded = false;
 function cleanHtml(html: string): string {
   if (!styleHookAdded) {
@@ -252,6 +259,29 @@ export default function EmailDetailPageContent({ email, user }: EmailDetailPageC
                   )}
                 </div>
               </div>
+
+              {/* PC-6 chunk 4b: attached files */}
+              {email.attachmentList && email.attachmentList.length > 0 && (
+                <div className="px-6 pb-6">
+                  <p className="text-xs font-medium text-gray-700 uppercase tracking-wide mb-2">Attached files</p>
+                  <ul className="flex flex-wrap gap-2">
+                    {email.attachmentList.map((a) => (
+                      <li key={a.index}>
+                        <a
+                          href={`/api/emails/${encodeURIComponent(email.id)}/attachments/${a.index}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-800"
+                        >
+                          <span aria-hidden="true">📎</span>
+                          <span className="font-medium">{a.filename}</span>
+                          <span className="text-xs text-gray-500">{formatSize(a.size)}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
               <div className="px-6 py-4 border-t bg-gray-50 flex flex-wrap justify-end gap-2">
                 <button

@@ -15,6 +15,16 @@ const COLORS = [
   { name: "Purple", value: "#9333ea" },
 ];
 
+// PC-6 chunk 4b: Vercel takes at most 4.5 MB per request, so attached files
+// are capped at 4 MB in total. Bigger files go as a Google Drive link.
+const MAX_ATTACH_BYTES = 4 * 1024 * 1024;
+
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  if (bytes >= 1024) return Math.round(bytes / 1024) + " KB";
+  return bytes + " bytes";
+}
+
 interface ComposeEmailContentProps {
   user: User;
 }
@@ -28,6 +38,9 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
   const [bodyEmpty, setBodyEmpty] = useState(true);
   const editorRef = useRef<HTMLDivElement>(null);
   const savedRange = useRef<Range | null>(null);
+  // PC-6 chunk 4b: attached files, about 4 MB in total.
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
@@ -71,6 +84,36 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
     format("createLink", url);
   };
 
+  const addFiles = (list: FileList | null) => {
+    if (!list || list.length === 0) return;
+    const incoming = Array.from(list);
+    setFiles((prev) => [...prev, ...incoming]);
+  };
+
+  // PC-6 chunk 4b: a file dropped anywhere on this page is attached, instead
+  // of the browser opening or downloading it.
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) => Boolean(e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files"));
+    const over = (e: DragEvent) => {
+      if (hasFiles(e)) e.preventDefault();
+    };
+    const drop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      const dropped = Array.from(e.dataTransfer?.files || []);
+      if (dropped.length > 0) setFiles((prev) => [...prev, ...dropped]);
+    };
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("drop", drop);
+    };
+  }, []);
+
+  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+  const tooBig = totalBytes > MAX_ATTACH_BYTES;
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -103,21 +146,24 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
       setError("Please write a message.");
       return;
     }
+    if (tooBig) {
+      setError("Attached files are over 4 MB in total. Remove some, or share big files as a Google Drive link.");
+      return;
+    }
     setIsSending(true);
     setError("");
 
     try {
+      // PC-6 chunk 4b: sent as a form so attached files can go along.
+      const form = new FormData();
+      form.append("to", to);
+      form.append("subject", subject);
+      form.append("text", text);
+      form.append("html", html);
+      for (const f of files) form.append("attachments", f, f.name);
       const response = await fetch("/api/emails/send", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          to,
-          subject,
-          text,
-          html,
-        }),
+        body: form,
       });
 
       const result = await response.json();
@@ -293,6 +339,44 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
                       <span className="pointer-events-none absolute left-3 top-3 text-sm text-gray-400">Write your message...</span>
                     )}
                   </div>
+                  {/* PC-6 chunk 4b: attached files */}
+                  <div className="pt-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3 py-1.5 rounded-lg border border-dashed border-gray-400 text-sm text-gray-700 bg-white hover:bg-gray-50"
+                    >
+                      📎 Attach files (or drag them onto this page)
+                    </button>
+                    {files.length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {files.map((f, i) => (
+                          <li key={i + "-" + f.name} className="flex items-center gap-2 text-sm text-gray-800">
+                            <span className="font-medium">{f.name}</span>
+                            <span className="text-xs text-gray-500">{formatSize(f.size)}</span>
+                            <button
+                              type="button"
+                              title="Remove this file"
+                              onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}
+                              className="px-1 text-gray-500 hover:text-red-600"
+                            >
+                              ✕
+                            </button>
+                          </li>
+                        ))}
+                        <li className={"text-xs " + (tooBig ? "text-red-600 font-medium" : "text-gray-500")}>
+                          Total {formatSize(totalBytes)} of 4 MB{tooBig ? ". Too big to send: remove some, or share big files as a Google Drive link." : ""}
+                        </li>
+                      </ul>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-between pt-4 border-t border-gray-200">
@@ -311,6 +395,7 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
                         setSubject("");
                         if (editorRef.current) editorRef.current.innerHTML = "";
                         setBodyEmpty(true);
+                        setFiles([]);
                       }}
                       className="px-5 py-2 rounded-full text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400"
                     >

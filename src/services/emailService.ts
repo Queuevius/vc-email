@@ -17,6 +17,8 @@ interface SendEmailParams {
   subject: string;
   text?: string;
   html?: string;
+  // PC-6 chunk 4b: attached files
+  attachments?: { filename: string; content: Buffer; contentType: string }[];
 }
 
 // One page of a folder, newest first.
@@ -206,6 +208,7 @@ export class EmailService {
           subject: params.subject,
           text: params.text,
           html: params.html,
+          attachments: params.attachments,
           headers: {
             "X-Mailer": "VC Email System",
             "X-Priority": "3",
@@ -245,7 +248,7 @@ export class EmailService {
         subject: params.subject,
         bodyText: params.text || null,
         bodyHtml: params.html || null,
-        attachments: null,
+        attachments: params.attachments?.length ? params.attachments.map((a) => `${a.filename}:${a.content.length}`).join(",") : null,
         sentAt: new Date(),
         receivedAt: new Date(),
         size: params.text ? params.text.length : (params.html ? params.html.length : 0),
@@ -329,6 +332,13 @@ export class EmailService {
         bodyText: parsedEmail.text || null,
         bodyHtml: parsedEmail.html || null,
         attachments: parsedEmail.attachments?.map((att: any) => `${att.filename || "unnamed"}:${att.size || 0}`).join(",") || null,
+        // PC-6 chunk 4b: the attached files, so the page can list them
+        attachmentList: (parsedEmail.attachments || []).map((att: any, i: number) => ({
+          index: i,
+          filename: att.filename || "attachment-" + (i + 1),
+          size: att.size || (att.content ? att.content.length : 0),
+          contentType: att.contentType || "application/octet-stream",
+        })),
         sentAt: parsedEmail.date || new Date(),
         receivedAt: message.attributes.date || new Date(),
         size: (typeof parsedEmail.text === "string" ? parsedEmail.text.length : 0) + (typeof parsedEmail.html === "string" ? parsedEmail.html.length : 0),
@@ -419,6 +429,35 @@ export class EmailService {
       return emails[0] || null;
     } catch (error) {
       console.error("Error fetching email by id:", error);
+      return null;
+    } finally {
+      if (connection) connection.end();
+    }
+  }
+
+  // PC-6 chunk 4b: one attached file of an email, read fresh from Zoho.
+  async getAttachment(emailId: string, index: number): Promise<{ filename: string; contentType: string; content: Buffer } | null> {
+    const { mailbox, uid } = parseEmailId(emailId);
+    if (!isAllowedMailbox(mailbox) || !Number.isFinite(uid) || !Number.isInteger(index) || index < 0) return null;
+    let connection: any;
+    try {
+      connection = await this.getImapConnection();
+      await connection.openBox(mailbox);
+      const messages = await connection.search([["UID", uid]], { bodies: "", struct: true, markSeen: false });
+      const message = messages[0];
+      if (!message) return null;
+      const raw = message.parts && message.parts.length > 0 ? message.parts[0].body : message.body;
+      if (!raw) return null;
+      const parsed: ParsedMail = await simpleParser(raw);
+      const att: any = parsed.attachments?.[index];
+      if (!att) return null;
+      return {
+        filename: att.filename || "attachment-" + (index + 1),
+        contentType: att.contentType || "application/octet-stream",
+        content: att.content,
+      };
+    } catch (error) {
+      console.error("Error fetching attachment:", error);
       return null;
     } finally {
       if (connection) connection.end();

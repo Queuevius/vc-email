@@ -5,6 +5,11 @@ import { NextRequest } from "next/server";
 import { canPerformAction } from "@/lib/permissions";
 import { extractAddresses, ownAddresses, loadYesList, noteForText, noteForHtml } from "@/lib/consent";
 
+// PC-6 chunk 4b: Vercel takes at most 4.5 MB per request, so files sent from
+// the page are capped at 4 MB in total (Tony's choice). Bigger files go as a
+// Google Drive link.
+const MAX_ATTACH_BYTES = 4 * 1024 * 1024;
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -14,9 +19,36 @@ export async function POST(req: NextRequest) {
     }
 
     const emailService = new EmailService();
-    const body = await req.json();
-
-    const { to, cc, bcc, subject, text, html } = body;
+    // PC-6 chunk 4b: an email with files arrives as a form; without, as JSON.
+    let to: string | undefined, cc: string | undefined, bcc: string | undefined;
+    let subject: string | undefined, text: string | undefined, html: string | undefined;
+    const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
+    if ((req.headers.get("content-type") || "").includes("multipart/form-data")) {
+      const form = await req.formData();
+      const field = (k: string): string | undefined => {
+        const v = form.get(k);
+        return typeof v === "string" && v ? v : undefined;
+      };
+      to = field("to");
+      cc = field("cc");
+      bcc = field("bcc");
+      subject = field("subject");
+      text = field("text");
+      html = field("html");
+      let total = 0;
+      for (const item of form.getAll("attachments")) {
+        if (typeof item === "string") continue;
+        const content = Buffer.from(await item.arrayBuffer());
+        total += content.length;
+        attachments.push({ filename: item.name || "attachment", content, contentType: item.type || "application/octet-stream" });
+      }
+      if (total > MAX_ATTACH_BYTES) {
+        return Response.json({ error: "Attached files are over 4 MB in total. Share big files as a Google Drive link instead." }, { status: 400 });
+      }
+    } else {
+      const body = await req.json();
+      ({ to, cc, bcc, subject, text, html } = body);
+    }
 
     if (!to || !subject) {
       return Response.json({ error: "Missing required fields: 'to' and 'subject' are required" }, { status: 400 });
@@ -24,7 +56,7 @@ export async function POST(req: NextRequest) {
 
     // Always send from a single configured address + display name
     const senderEmail = process.env.EMAIL_FROM || "VC@Needpedia.org";
-    const senderName = process.env.EMAIL_FROM_NAME || "Volunteer Coordination";
+    const senderName = "Needpedia Volunteer Coordination"; // PC-6: Tony, 2 Oct 2026
     
     if (!senderEmail) {
       return Response.json({ error: "Missing sender email address" }, { status: 400 });
@@ -59,6 +91,7 @@ export async function POST(req: NextRequest) {
         subject,
         text: finalText,
         html: finalHtml,
+        attachments,
       },
       session.user.id
     );
