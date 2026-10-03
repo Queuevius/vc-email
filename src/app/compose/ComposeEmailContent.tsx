@@ -41,6 +41,8 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
   // PC-6 chunk 4b: attached files, about 4 MB in total.
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // PC-6 chunk 4c: the email being answered, if this is a reply
+  const [replyTo, setReplyTo] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
@@ -135,6 +137,8 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
 
     if (toParam) setTo(toParam);
     if (subjectParam) setSubject(subjectParam);
+    const replyParam = searchParams.get("replyTo");
+    if (replyParam) setReplyTo(replyParam);
   }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -160,6 +164,7 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
       form.append("subject", subject);
       form.append("text", text);
       form.append("html", html);
+      if (replyTo) form.append("replyTo", replyTo);
       for (const f of files) form.append("attachments", f, f.name);
       const response = await fetch("/api/emails/send", {
         method: "POST",

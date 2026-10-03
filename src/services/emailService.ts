@@ -19,6 +19,9 @@ interface SendEmailParams {
   html?: string;
   // PC-6 chunk 4b: attached files
   attachments?: { filename: string; content: Buffer; contentType: string }[];
+  // PC-6 chunk 4c: ties a reply to the email it answers
+  inReplyTo?: string;
+  references?: string[];
 }
 
 // One page of a folder, newest first.
@@ -67,6 +70,29 @@ export function parseEmailId(emailId: string): { mailbox: string; uid: number } 
     return { mailbox: process.env.IMAP_MAILBOX || "INBOX", uid: parseInt(emailId) };
   }
   return { mailbox: emailId.slice(0, dash), uid: parseInt(emailId.slice(dash + 1)) };
+}
+
+// PC-6 chunk 4c: helpers for finding the rest of a conversation.
+// The subject without "Re:", "Fwd:" and the like, in small letters.
+function conversationSubject(subject: string): string {
+  let t = (subject || "").trim();
+  for (;;) {
+    const next = t.replace(/^(re|fwd?|aw|sv)\s*(\[\d+\])?\s*:\s*/i, "");
+    if (next === t) break;
+    t = next;
+  }
+  return t.trim().toLowerCase();
+}
+
+// Everyone on an email except VC@Needpedia.org itself.
+function peopleOn(e: Email): string[] {
+  const own = new Set(
+    [process.env.EMAIL_FROM, process.env.IMAP_USER, "VC@Needpedia.org"]
+      .filter((a): a is string => Boolean(a))
+      .map((a) => a.trim().toLowerCase())
+  );
+  const all = [e.from, e.to, e.cc].filter(Boolean).join(" ").toLowerCase().match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/g) || [];
+  return all.filter((a) => !own.has(a));
 }
 
 export class EmailService {
@@ -209,6 +235,8 @@ export class EmailService {
           text: params.text,
           html: params.html,
           attachments: params.attachments,
+          inReplyTo: params.inReplyTo,
+          references: params.references,
           headers: {
             "X-Mailer": "VC Email System",
             "X-Priority": "3",
@@ -339,6 +367,13 @@ export class EmailService {
           size: att.size || (att.content ? att.content.length : 0),
           contentType: att.contentType || "application/octet-stream",
         })),
+        // PC-6 chunk 4c: the hidden links that tie a reply to earlier emails
+        inReplyTo: parsedEmail.inReplyTo || null,
+        references: Array.isArray(parsedEmail.references)
+          ? parsedEmail.references
+          : parsedEmail.references
+            ? [parsedEmail.references]
+            : [],
         sentAt: parsedEmail.date || new Date(),
         receivedAt: message.attributes.date || new Date(),
         size: (typeof parsedEmail.text === "string" ? parsedEmail.text.length : 0) + (typeof parsedEmail.html === "string" ? parsedEmail.html.length : 0),
@@ -462,6 +497,66 @@ export class EmailService {
     } finally {
       if (connection) connection.end();
     }
+  }
+
+  // PC-6 chunk 4c: search the open folder; a failed search counts as no match.
+  private searchUids(connection: any, criteria: any[]): Promise<number[]> {
+    return new Promise((resolve) => {
+      try {
+        connection.imap.search(criteria, (err: any, uids: number[]) => resolve(err ? [] : uids || []));
+      } catch {
+        resolve([]);
+      }
+    });
+  }
+
+  // PC-6 chunk 4c: earlier messages in the same conversation, from Inbox and
+  // Sent, oldest first. Found two ways: the hidden reply links email programs
+  // add (In-Reply-To and References), and the same subject (ignoring "Re:",
+  // "Fwd:") with at least one person in common and an earlier date.
+  async getEarlierInConversation(email: Email): Promise<Email[]> {
+    const refs = Array.from(new Set([...(email.references || []), ...(email.inReplyTo ? [email.inReplyTo] : [])])).slice(-20);
+    const refSet = new Set(refs);
+    const core = conversationSubject(email.subject);
+    const people = new Set(peopleOn(email));
+    const found: Email[] = [];
+    let connection: any;
+    try {
+      connection = await this.getImapConnection();
+      for (const mailbox of Array.from(new Set([process.env.IMAP_MAILBOX || "INBOX", process.env.IMAP_SENT_MAILBOX || "Sent"]))) {
+        await connection.openBox(mailbox);
+        const uids = new Set<number>();
+        if (core.length >= 3) {
+          for (const u of await this.searchUids(connection, [["SUBJECT", core]])) uids.add(u);
+        }
+        for (const ref of refs) {
+          for (const u of await this.searchUids(connection, [["HEADER", "MESSAGE-ID", ref]])) uids.add(u);
+        }
+        const list = Array.from(uids).sort((a, b) => b - a).slice(0, 60);
+        found.push(...(await this.fetchByUids(connection, mailbox, list)));
+      }
+    } finally {
+      if (connection) connection.end();
+    }
+    const myTime = new Date(email.sentAt).getTime();
+    const seen = new Set<string>();
+    if (email.messageId) seen.add(email.messageId);
+    return found
+      .filter((e) => e.id !== email.id)
+      .filter((e) => {
+        if (e.messageId && refSet.has(e.messageId)) return true;
+        const sameSubject = core.length >= 3 && conversationSubject(e.subject) === core;
+        const shares = peopleOn(e).some((p) => people.has(p));
+        return sameSubject && shares && new Date(e.sentAt).getTime() < myTime;
+      })
+      .sort((a, b) => new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime())
+      .filter((e) => {
+        if (!e.messageId) return true;
+        if (seen.has(e.messageId)) return false;
+        seen.add(e.messageId);
+        return true;
+      })
+      .slice(-50);
   }
 
   async toggleStar(emailId: string, isStarred: boolean): Promise<{ success: boolean; error?: string }> {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Email } from "@/types/email";
@@ -39,6 +39,97 @@ function cleanHtml(html: string): string {
   });
 }
 
+// PC-6 chunk 4c: the old text email programs paste under every reply is
+// tucked behind "show quoted text", so each message shows what that person
+// actually wrote.
+const QUOTE_SELECTORS = ".gmail_quote, .gmail_quote_container, .zmail_extra, .yahoo_quoted, blockquote";
+
+function splitHtml(clean: string): { main: string; quoted: string } {
+  const box = document.createElement("div");
+  box.innerHTML = clean;
+  const parts: string[] = [];
+  box.querySelectorAll(QUOTE_SELECTORS).forEach((el) => {
+    if (!box.contains(el)) return;
+    parts.push(el.outerHTML);
+    el.remove();
+  });
+  if (!(box.textContent || "").trim()) return { main: clean, quoted: "" };
+  return { main: box.innerHTML, quoted: parts.join("") };
+}
+
+function splitText(text: string): { main: string; quoted: string } {
+  const lines = text.split("\n");
+  let cut = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim();
+    if (/^On .{4,300}wrote:\s*$/.test(l) || /^-{2,}\s*Original Message\s*-{2,}$/i.test(l) || l.startsWith(">")) {
+      cut = i;
+      break;
+    }
+  }
+  if (cut <= 0) return { main: text, quoted: "" };
+  return { main: lines.slice(0, cut).join("\n").trimEnd(), quoted: lines.slice(cut).join("\n") };
+}
+
+function MessageBody({ email, mounted }: { email: Email; mounted: boolean }) {
+  const [showQuoted, setShowQuoted] = useState(false);
+  if (!mounted) return null;
+  const isHtml = Boolean(email.bodyHtml);
+  const { main, quoted } = isHtml ? splitHtml(cleanHtml(email.bodyHtml || "")) : splitText(email.bodyText || "");
+  return (
+    <div className="prose max-w-none">
+      {isHtml ? (
+        <div className="text-gray-900" dangerouslySetInnerHTML={{ __html: main }} />
+      ) : (
+        <p className="whitespace-pre-line text-gray-900">{main}</p>
+      )}
+      {quoted && (
+        <div className="not-prose mt-3">
+          <button
+            type="button"
+            onClick={() => setShowQuoted((v) => !v)}
+            className="text-xs text-gray-500 hover:text-gray-800 underline"
+          >
+            {showQuoted ? "hide quoted text" : "show quoted text"}
+          </button>
+          {showQuoted &&
+            (isHtml ? (
+              <div className="prose max-w-none mt-2 pl-3 border-l-2 border-gray-200 text-gray-600" dangerouslySetInnerHTML={{ __html: quoted }} />
+            ) : (
+              <p className="mt-2 pl-3 border-l-2 border-gray-200 whitespace-pre-line text-sm text-gray-600">{quoted}</p>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// PC-6 chunk 4b, moved here in 4c so every message in a conversation can use it.
+function AttachmentList({ email }: { email: Email }) {
+  if (!email.attachmentList || email.attachmentList.length === 0) return null;
+  return (
+    <div className="px-6 pb-6">
+      <p className="text-xs font-medium text-gray-700 uppercase tracking-wide mb-2">Attached files</p>
+      <ul className="flex flex-wrap gap-2">
+        {email.attachmentList.map((a) => (
+          <li key={a.index}>
+            <a
+              href={`/api/emails/${encodeURIComponent(email.id)}/attachments/${a.index}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-800"
+            >
+              <span aria-hidden="true">📎</span>
+              <span className="font-medium">{a.filename}</span>
+              <span className="text-xs text-gray-500">{formatSize(a.size)}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 interface EmailDetailPageContentProps {
   email: Email;
   user?: User;
@@ -50,6 +141,28 @@ export default function EmailDetailPageContent({ email, user }: EmailDetailPageC
   const router = useRouter();
   const [summary, setSummary] = useState<string | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
+
+  // PC-6 chunk 4c: earlier messages in this conversation, oldest first.
+  const [earlier, setEarlier] = useState<Email[]>([]);
+  const mainRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/emails/${encodeURIComponent(email.id)}/thread`)
+      .then((r) => (r.ok ? r.json() : { emails: [] }))
+      .then((data) => {
+        if (cancelled) return;
+        const list: Email[] = Array.isArray(data?.emails) ? data.emails : [];
+        setEarlier(list);
+        if (list.length > 0) {
+          setTimeout(() => mainRef.current?.scrollIntoView({ block: "start" }), 50);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [email.id]);
 
   useEffect(() => {
     setMounted(true);
@@ -120,7 +233,40 @@ export default function EmailDetailPageContent({ email, user }: EmailDetailPageC
         <Sidebar user={user} />
         <div className="flex-1 pt-20 md:pt-12 px-6 md:px-8">
           <div className="max-w-5xl w-full mx-auto">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+            {/* PC-6 chunk 4c: earlier messages in this conversation, oldest first */}
+            {earlier.length > 0 && (
+              <div className="mb-4 space-y-3">
+                <p className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                  Earlier in this conversation ({earlier.length})
+                </p>
+                {earlier.map((m) => (
+                  <div key={m.id} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="px-6 py-3 border-b border-gray-100 bg-gray-50">
+                      <p className="text-sm font-semibold text-gray-900">{m.subject}</p>
+                      {m.held && (
+                        <p className="mt-1 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                          not public yet
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-600 mt-1">
+                        From <span className="font-medium text-gray-800">{m.from}</span>
+                      </p>
+                      <p className="text-xs text-gray-600">
+                        To {m.to}
+                        {m.cc ? ` • Cc ${m.cc}` : ""}
+                      </p>
+                      <p className="text-xs text-gray-500">{formatDate(m.sentAt)}</p>
+                    </div>
+                    <div className="px-6 py-4 text-gray-900">
+                      <MessageBody email={m} mounted={mounted} />
+                    </div>
+                    <AttachmentList email={m} />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div ref={mainRef} className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden scroll-mt-24">
               <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
                 <div className="flex items-center space-x-2">
                   <Link
@@ -206,8 +352,9 @@ export default function EmailDetailPageContent({ email, user }: EmailDetailPageC
                       title="Reply"
                       onClick={() => {
                         const params = new URLSearchParams({
-                          to: email.from,
-                          subject: email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`
+                          to: email.id.startsWith("Sent-") ? email.to : email.from,
+                          subject: email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`,
+                          replyTo: email.id
                         });
                         router.push(`/compose?${params.toString()}`);
                       }}
@@ -246,50 +393,19 @@ export default function EmailDetailPageContent({ email, user }: EmailDetailPageC
               )}
 
               <div className="px-6 pb-8 text-gray-900">
-                <div className="prose max-w-none">
-                  {email.bodyHtml ? (
-                    <div
-                      className="text-gray-900"
-                      dangerouslySetInnerHTML={{
-                        __html: mounted ? cleanHtml(email.bodyHtml) : ""
-                      }}
-                    />
-                  ) : (
-                    <p className="whitespace-pre-line text-gray-900">{email.bodyText}</p>
-                  )}
-                </div>
+                <MessageBody email={email} mounted={mounted} />
               </div>
 
-              {/* PC-6 chunk 4b: attached files */}
-              {email.attachmentList && email.attachmentList.length > 0 && (
-                <div className="px-6 pb-6">
-                  <p className="text-xs font-medium text-gray-700 uppercase tracking-wide mb-2">Attached files</p>
-                  <ul className="flex flex-wrap gap-2">
-                    {email.attachmentList.map((a) => (
-                      <li key={a.index}>
-                        <a
-                          href={`/api/emails/${encodeURIComponent(email.id)}/attachments/${a.index}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm text-gray-800"
-                        >
-                          <span aria-hidden="true">📎</span>
-                          <span className="font-medium">{a.filename}</span>
-                          <span className="text-xs text-gray-500">{formatSize(a.size)}</span>
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <AttachmentList email={email} />
 
               <div className="px-6 py-4 border-t bg-gray-50 flex flex-wrap justify-end gap-2">
                 <button
                   className="px-4 py-2 rounded-full border border-gray-300 text-sm font-medium text-gray-700 bg-white hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                   onClick={() => {
                     const params = new URLSearchParams({
-                      to: email.from,
-                      subject: email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`
+                      to: email.id.startsWith("Sent-") ? email.to : email.from,
+                      subject: email.subject.startsWith("Re:") ? email.subject : `Re: ${email.subject}`,
+                          replyTo: email.id
                     });
                     router.push(`/compose?${params.toString()}`);
                   }}

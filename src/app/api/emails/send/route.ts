@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
     // PC-6 chunk 4b: an email with files arrives as a form; without, as JSON.
     let to: string | undefined, cc: string | undefined, bcc: string | undefined;
     let subject: string | undefined, text: string | undefined, html: string | undefined;
+    let replyTo: string | undefined; // PC-6 chunk 4c
     const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
     if ((req.headers.get("content-type") || "").includes("multipart/form-data")) {
       const form = await req.formData();
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
       subject = field("subject");
       text = field("text");
       html = field("html");
+      replyTo = field("replyTo");
       let total = 0;
       for (const item of form.getAll("attachments")) {
         if (typeof item === "string") continue;
@@ -47,7 +49,7 @@ export async function POST(req: NextRequest) {
       }
     } else {
       const body = await req.json();
-      ({ to, cc, bcc, subject, text, html } = body);
+      ({ to, cc, bcc, subject, text, html, replyTo } = body);
     }
 
     if (!to || !subject) {
@@ -81,6 +83,18 @@ export async function POST(req: NextRequest) {
       if (html) finalHtml = html + noteForHtml(notYes);
     }
 
+    // PC-6 chunk 4c: a reply carries the hidden links that tie it to the
+    // email it answers, so every mail program shows them as one conversation.
+    let inReplyTo: string | undefined;
+    let references: string[] | undefined;
+    if (replyTo) {
+      const original = await emailService.getEmailById(replyTo);
+      if (original?.messageId && !original.messageId.startsWith("imap-")) {
+        inReplyTo = original.messageId;
+        references = [...(original.references || []), original.messageId].slice(-20);
+      }
+    }
+
     const result = await emailService.sendEmail(
       {
         from: senderEmail,
@@ -92,6 +106,8 @@ export async function POST(req: NextRequest) {
         text: finalText,
         html: finalHtml,
         attachments,
+        inReplyTo,
+        references,
       },
       session.user.id
     );
