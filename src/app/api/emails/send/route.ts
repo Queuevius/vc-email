@@ -44,8 +44,8 @@ export async function POST(req: NextRequest) {
         total += content.length;
         attachments.push({ filename: item.name || "attachment", content, contentType: item.type || "application/octet-stream" });
       }
-      if (total > MAX_ATTACH_BYTES) {
-        return Response.json({ error: "Attached files are over 4 MB in total. Share big files as a Google Drive link instead." }, { status: 400 });
+      if (total + (html ? html.length : 0) > MAX_ATTACH_BYTES) {
+        return Response.json({ error: "Files and pictures are over 4 MB in total. Share big files as a Google Drive link instead." }, { status: 400 });
       }
     } else {
       const body = await req.json();

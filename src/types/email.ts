@@ -19,7 +19,7 @@ export interface Email {
     senderId: string | null;
     held?: boolean; // PC-5 consent: true = not public yet
     // PC-6 chunk 4b: the attached files, in order (index is used to download one)
-    attachmentList?: { index: number; filename: string; size: number; contentType: string }[];
+    attachmentList?: { index: number; filename: string; size: number; contentType: string; inline?: boolean }[];
     // PC-6 chunk 4c: the hidden links that tie a reply to earlier emails
     inReplyTo?: string | null;
     references?: string[];

@@ -234,6 +234,10 @@ export class EmailService {
           subject: params.subject,
           text: params.text,
           html: params.html,
+          // PC-7: pictures placed in the text travel inside the email as
+          // hidden files linked to their spot, so mail programs show them
+          // where they were placed instead of as attachments.
+          attachDataUrls: true,
           attachments: params.attachments,
           inReplyTo: params.inReplyTo,
           references: params.references,
@@ -366,6 +370,8 @@ export class EmailService {
           filename: att.filename || "attachment-" + (i + 1),
           size: att.size || (att.content ? att.content.length : 0),
           contentType: att.contentType || "application/octet-stream",
+          // PC-7: a picture shown in place in the text
+          inline: Boolean(att.related && att.cid),
         })),
         // PC-6 chunk 4c: the hidden links that tie a reply to earlier emails
         inReplyTo: parsedEmail.inReplyTo || null,

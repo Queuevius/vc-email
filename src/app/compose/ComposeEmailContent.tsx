@@ -40,6 +40,9 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
   const savedRange = useRef<Range | null>(null);
   // PC-6 chunk 4b: attached files, about 4 MB in total.
   const [files, setFiles] = useState<File[]>([]);
+  // PC-7: pictures placed in the text count toward the 4 MB too
+  const [bodyBytes, setBodyBytes] = useState(0);
+  const [hasPictures, setHasPictures] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // PC-6 chunk 4c: the email being answered, if this is a reply
   const [replyTo, setReplyTo] = useState("");
@@ -86,6 +89,49 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
     format("createLink", url);
   };
 
+  // PC-7: keeps the "empty" hint and the size total up to date.
+  const updateBody = () => {
+    const ed = editorRef.current;
+    const pics = Boolean(ed?.querySelector("img"));
+    setHasPictures(pics);
+    setBodyEmpty(!((ed?.innerText || "").trim() || pics));
+    setBodyBytes(ed ? ed.innerHTML.length : 0);
+  };
+
+  // PC-7: puts the cursor where a picture was dropped.
+  const placeCaretAt = (x: number, y: number) => {
+    const doc: any = document;
+    let range: Range | null = null;
+    if (doc.caretRangeFromPoint) {
+      range = doc.caretRangeFromPoint(x, y);
+    } else if (doc.caretPositionFromPoint) {
+      const p = doc.caretPositionFromPoint(x, y);
+      if (p) {
+        range = document.createRange();
+        range.setStart(p.offsetNode, p.offset);
+        range.collapse(true);
+      }
+    }
+    if (range && editorRef.current?.contains(range.startContainer)) savedRange.current = range;
+  };
+
+  // PC-7: puts pictures into the text at the cursor.
+  const insertPictures = async (pics: File[]) => {
+    for (const f of pics) {
+      const url = await new Promise<string>((resolve, reject) => {
+        const r = new FileReader();
+        r.onload = () => resolve(String(r.result));
+        r.onerror = () => reject(r.error);
+        r.readAsDataURL(f);
+      });
+      editorRef.current?.focus();
+      restoreSelection();
+      document.execCommand("insertHTML", false, '<img src="' + url + '" style="max-width:100%;height:auto">');
+      keepSelection();
+    }
+    updateBody();
+  };
+
   const addFiles = (list: FileList | null) => {
     if (!list || list.length === 0) return;
     const incoming = Array.from(list);
@@ -103,7 +149,21 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
       if (!hasFiles(e)) return;
       e.preventDefault();
       const dropped = Array.from(e.dataTransfer?.files || []);
-      if (dropped.length > 0) setFiles((prev) => [...prev, ...dropped]);
+      if (dropped.length === 0) return;
+      // PC-7: pictures dropped onto the writing box go where they are dropped;
+      // other files, and anything dropped elsewhere, are attached.
+      const target = e.target as Node | null;
+      if (editorRef.current && target && editorRef.current.contains(target)) {
+        const pics = dropped.filter((f) => f.type.startsWith("image/"));
+        const others = dropped.filter((f) => !f.type.startsWith("image/"));
+        if (pics.length > 0) {
+          placeCaretAt(e.clientX, e.clientY);
+          insertPictures(pics);
+        }
+        if (others.length > 0) setFiles((prev) => [...prev, ...others]);
+        return;
+      }
+      setFiles((prev) => [...prev, ...dropped]);
     };
     window.addEventListener("dragover", over);
     window.addEventListener("drop", drop);
@@ -113,7 +173,7 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
     };
   }, []);
 
-  const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+  const totalBytes = files.reduce((sum, f) => sum + f.size, 0) + (hasPictures ? bodyBytes : 0);
   const tooBig = totalBytes > MAX_ATTACH_BYTES;
 
   useEffect(() => {
@@ -146,12 +206,12 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
     // PC-6 chunk 4a: the message goes out formatted, plus a plain copy.
     const html = editorRef.current?.innerHTML || "";
     const text = (editorRef.current?.innerText || "").trim();
-    if (!text) {
+    if (!text && !editorRef.current?.querySelector("img")) {
       setError("Please write a message.");
       return;
     }
     if (tooBig) {
-      setError("Attached files are over 4 MB in total. Remove some, or share big files as a Google Drive link.");
+      setError("Files and pictures are over 4 MB in total. Remove some, or share big files as a Google Drive link.");
       return;
     }
     setIsSending(true);
@@ -335,10 +395,18 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
                       ref={editorRef}
                       contentEditable
                       suppressContentEditableWarning
-                      onInput={() => { setBodyEmpty(!(editorRef.current?.innerText || "").trim()); keepSelection(); }}
+                      onInput={() => { updateBody(); keepSelection(); }}
+                      onPaste={(e) => {
+                        // PC-7: a pasted picture goes where the cursor is
+                        const pics = Array.from(e.clipboardData?.files || []).filter((f) => f.type.startsWith("image/"));
+                        if (pics.length === 0) return;
+                        e.preventDefault();
+                        keepSelection();
+                        insertPictures(pics);
+                      }}
                       onKeyUp={keepSelection}
                       onMouseUp={keepSelection}
-                      className="w-full min-h-[20rem] px-3 py-3 text-sm text-gray-900 border border-gray-300 rounded-b-lg focus:outline-none focus:ring-2 focus:ring-blue-500 overflow-auto [&_a]:text-blue-700 [&_a]:underline"
+                      className="w-full min-h-[20rem] px-3 py-3 text-sm text-gray-900 border border-gray-300 rounded-b-lg focus:outline-none focus:ring-2 focus:ring-blue-500 overflow-auto [&_a]:text-blue-700 [&_a]:underline [&_img]:max-w-full [&_img]:h-auto"
                     />
                     {bodyEmpty && (
                       <span className="pointer-events-none absolute left-3 top-3 text-sm text-gray-400">Write your message...</span>
@@ -360,7 +428,7 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
                     >
                       📎 Attach files (or drag them onto this page)
                     </button>
-                    {files.length > 0 && (
+                    {(files.length > 0 || hasPictures) && (
                       <ul className="mt-2 space-y-1">
                         {files.map((f, i) => (
                           <li key={i + "-" + f.name} className="flex items-center gap-2 text-sm text-gray-800">
@@ -377,7 +445,7 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
                           </li>
                         ))}
                         <li className={"text-xs " + (tooBig ? "text-red-600 font-medium" : "text-gray-500")}>
-                          Total {formatSize(totalBytes)} of 4 MB{tooBig ? ". Too big to send: remove some, or share big files as a Google Drive link." : ""}
+                          Files and pictures: {formatSize(totalBytes)} of 4 MB{tooBig ? ". Too big to send: remove some, or share big files as a Google Drive link." : ""}
                         </li>
                       </ul>
                     )}
@@ -400,6 +468,8 @@ export default function ComposeEmailContent({ user }: ComposeEmailContentProps) 
                         setSubject("");
                         if (editorRef.current) editorRef.current.innerHTML = "";
                         setBodyEmpty(true);
+                        setBodyBytes(0);
+                        setHasPictures(false);
                         setFiles([]);
                       }}
                       className="px-5 py-2 rounded-full text-sm font-semibold text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400"

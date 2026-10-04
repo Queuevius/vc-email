@@ -20,11 +20,20 @@ function formatSize(bytes: number): string {
   return bytes + " bytes";
 }
 
+// PC-7: pictures that travel inside the email itself are shown in place.
+// Pictures loaded from other websites stay blocked: they would tell the
+// sender who opened the email and when.
+const SAFE_PICTURE = /^data:image\/(png|jpe?g|gif|webp|bmp);base64,/i;
+
 let styleHookAdded = false;
 function cleanHtml(html: string): string {
   if (!styleHookAdded) {
     styleHookAdded = true;
     DOMPurify.addHook("uponSanitizeAttribute", (_node, data) => {
+      if (data.attrName === "src") {
+        if (!SAFE_PICTURE.test(String(data.attrValue || ""))) data.keepAttr = false;
+        return;
+      }
       if (data.attrName !== "style") return;
       data.attrValue = String(data.attrValue || "")
         .split(";")
@@ -32,10 +41,21 @@ function cleanHtml(html: string): string {
         .filter((s) => SAFE_STYLE.test(s) && !/url\(|expression|var\(/i.test(s))
         .join("; ");
     });
+    // PC-7: a picture with nothing safe to show is removed; the rest fit the page.
+    DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+      if (node.nodeName !== "IMG") return;
+      const el = node as Element;
+      if (!el.getAttribute("src")) {
+        el.parentNode?.removeChild(el);
+        return;
+      }
+      el.removeAttribute("height");
+      el.setAttribute("style", "max-width:100%;height:auto");
+    });
   }
   return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ["p", "br", "strong", "b", "em", "i", "u", "s", "strike", "font", "a", "ul", "ol", "li", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "div", "span", "hr", "pre", "code"],
-    ALLOWED_ATTR: ["href", "target", "rel", "class", "style", "color"],
+    ALLOWED_TAGS: ["p", "br", "strong", "b", "em", "i", "u", "s", "strike", "font", "a", "ul", "ol", "li", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "div", "span", "hr", "pre", "code", "img"],
+    ALLOWED_ATTR: ["href", "target", "rel", "class", "style", "color", "src", "alt", "width"],
   });
 }
 
@@ -106,12 +126,14 @@ function MessageBody({ email, mounted }: { email: Email; mounted: boolean }) {
 
 // PC-6 chunk 4b, moved here in 4c so every message in a conversation can use it.
 function AttachmentList({ email }: { email: Email }) {
-  if (!email.attachmentList || email.attachmentList.length === 0) return null;
+  // PC-7: pictures shown in place in the text are not listed again as files
+  const listed = (email.attachmentList || []).filter((a) => !a.inline);
+  if (listed.length === 0) return null;
   return (
     <div className="px-6 pb-6">
       <p className="text-xs font-medium text-gray-700 uppercase tracking-wide mb-2">Attached files</p>
       <ul className="flex flex-wrap gap-2">
-        {email.attachmentList.map((a) => (
+        {listed.map((a) => (
           <li key={a.index}>
             <a
               href={`/api/emails/${encodeURIComponent(email.id)}/attachments/${a.index}`}
